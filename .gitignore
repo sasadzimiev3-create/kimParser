@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.cursor/rules/local-context.mdc
 *.session
 *.session-journal
 login_state.json

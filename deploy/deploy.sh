@@ -11,6 +11,7 @@ rsync -az --delete --timeout=60 \
   --exclude '.git/' \
   --exclude '.DS_Store' \
   --exclude '.env' \
+  --exclude '.cursor/rules/local-context.mdc' \
   --exclude '*.session' \
   --exclude '*.session-journal' \
   --exclude 'login_state.json' \
