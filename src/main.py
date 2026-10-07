@@ -26,6 +26,9 @@ def _dbg(hyp, loc, msg, data):
     import time
     with open("/var/log/kimparser-debug-820a6e.log", "a") as f:
         f.write(json.dumps({"sessionId": "820a6e", "runId": "pre-fix", "hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": int(time.time() * 1000)}, ensure_ascii=False) + "\n")
+
+
+_DBG_SAMPLE = {}
 # endregion
 
 
@@ -50,10 +53,16 @@ def message_text(message):
     return text or None
 
 
-async def ensure_joined(client, entity, username, quiet):
+async def ensure_joined(client, entity, username, quiet, may_join):
     # region agent log
-    _dbg("A", "main.py:ensure_joined", "before join", {"chat": username, "left": getattr(entity, "left", None), "quiet": quiet})
+    _dbg("A", "main.py:ensure_joined", "before join", {"chat": username, "left": getattr(entity, "left", None), "quiet": quiet, "may_join": may_join, "runId": "post-fix"})
     # endregion
+    if getattr(entity, "left", True) is False:
+        if not quiet:
+            log.info("Уже состоит в @%s", username)
+        return "ok"
+    if not may_join:
+        return "requested"
     try:
         await client(JoinChannelRequest(entity))
     except UserAlreadyParticipantError:
@@ -63,7 +72,7 @@ async def ensure_joined(client, entity, username, quiet):
     except InviteRequestSentError:
         if not quiet:
             log.info("Заявка в @%s отправлена, ждём одобрения администратора", username)
-        return "pending"
+        return "requested"
     except FloodWaitError:
         if not quiet:
             log.info("Вход в @%s отложен, Telegram просит подождать", username)
@@ -76,14 +85,14 @@ async def ensure_joined(client, entity, username, quiet):
     return "ok"
 
 
-async def attach_chat(client, allowed, username, topic_ids, quiet):
+async def attach_chat(client, allowed, username, topic_ids, quiet, may_join=True):
     try:
         entity = await client.get_entity(username)
     except Exception:
         if not quiet:
             log.exception("Чат @%s не найден", username)
         return "fail"
-    status = await ensure_joined(client, entity, username, quiet)
+    status = await ensure_joined(client, entity, username, quiet, may_join)
     if status != "ok":
         return status
     entity = await client.get_entity(username)
@@ -103,7 +112,10 @@ async def attach_chat(client, allowed, username, topic_ids, quiet):
         # region agent log
         try:
             sample = await client.get_messages(entity, limit=40, reply_to=topic_id)
-            _dbg("B", "main.py:attach_chat", "topic sample", {"chat": username, "topic": topic_id, "n": len(sample), "in_topic_false": [m.id for m in sample if not in_topic(m.id, m.reply_to, set(topic_ids))], "with_text": sum(1 for m in sample if message_text(m)), "keyword_hits": sum(1 for m in sample if message_text(m) and matching_keyword(message_text(m)))})
+            _dbg("B", "main.py:attach_chat", "topic sample", {"chat": username, "topic": topic_id, "n": len(sample), "in_topic_false": [m.id for m in sample if not in_topic(m.id, m.reply_to, set(topic_ids))], "with_text": sum(1 for m in sample if message_text(m)), "keyword_hits": sum(1 for m in sample if message_text(m) and matching_keyword(message_text(m))), "caption_hits": sum(1 for m in sample if not message_text(m) and m.media and matching_keyword(m.raw_text or "")), "service": sum(1 for m in sample if m.action)})
+            hit = next((m for m in sample if message_text(m) and matching_keyword(message_text(m))), None)
+            if hit is not None and "msg" not in _DBG_SAMPLE:
+                _DBG_SAMPLE.update({"chat": username, "msg": hit})
         except Exception as error:
             _dbg("B", "main.py:attach_chat", "topic sample failed", {"chat": username, "topic": topic_id, "error": type(error).__name__})
         # endregion
@@ -124,8 +136,8 @@ async def watch_map(client):
     pending = []
     for username, topic_ids in TOPICS.items():
         status = await attach_chat(client, allowed, username, topic_ids, quiet=False)
-        if status == "pending":
-            pending.append((username, topic_ids))
+        if status in ("pending", "requested"):
+            pending.append((username, topic_ids, status == "requested"))
     if not allowed and not pending:
         raise SystemExit("Нет ни одного доступного чата")
     return allowed, pending
@@ -135,10 +147,17 @@ async def retry_pending(client, allowed, pending):
     while pending:
         await asyncio.sleep(180)
         still_pending = []
-        for username, topic_ids in pending:
-            status = await attach_chat(client, allowed, username, topic_ids, quiet=True)
-            if status == "pending":
-                still_pending.append((username, topic_ids))
+        for username, topic_ids, requested in pending:
+            status = await attach_chat(
+                client,
+                allowed,
+                username,
+                topic_ids,
+                quiet=True,
+                may_join=not requested,
+            )
+            if status in ("pending", "requested"):
+                still_pending.append((username, topic_ids, requested or status == "requested"))
             elif status != "ok":
                 log.error("Чат @%s пропущен", username)
         pending[:] = still_pending
@@ -230,6 +249,21 @@ async def run():
     )
     if pending:
         asyncio.create_task(retry_pending(client, allowed, pending))
+    # region agent log
+    async def _dbg_test(event):
+        if not event.is_private or (event.raw_text or "").strip() != "/debugtest":
+            return
+        _dbg("DE", "main.py:_dbg_test", "debugtest requested", {"sender": event.sender_id, "status": subscribers.status(event.sender_id), "has_sample": "msg" in _DBG_SAMPLE})
+        if subscribers.status(event.sender_id) != "connected" or "msg" not in _DBG_SAMPLE:
+            return
+        try:
+            await client.forward_messages(bot, _DBG_SAMPLE["msg"])
+            _dbg("DE", "main.py:_dbg_test", "listener forwarded sample to bot", {"chat": _DBG_SAMPLE["chat"], "msg": _DBG_SAMPLE["msg"].id})
+        except Exception as error:
+            _dbg("DE", "main.py:_dbg_test", "listener forward failed", {"error": type(error).__name__})
+
+    bot_client.add_event_handler(_dbg_test, events.NewMessage(incoming=True))
+    # endregion
     log.info(
         "Слушаю %s чатов, бот @%s, подписчиков %s",
         len(allowed),
