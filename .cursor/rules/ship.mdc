@@ -1,0 +1,22 @@
+---
+description: После каждой правки коммитить, пушить и выкатывать только kimparser
+alwaysApply: true
+---
+
+# Выкладка kimparser
+
+После изменения файлов этого репозитория:
+
+1. Сделать коммит. Сообщение объясняет, зачем правка.
+2. Запушить в `origin`: `git@github.com:sasadzimiev3-create/kimParser.git`.
+3. Сразу выкатить: `bash deploy/deploy.sh`.
+
+Выкат идёт только в `/opt/kimparser` на `31.76.53.4`.
+
+Не менять и не перезапускать:
+
+- `/opt/coffedzhim`, `/var/www/coffedzhim`, `coffedzhim-bot.service`, nginx
+- `/opt/izicrm`, контейнеры Docker, порт 3000
+- порты 80, 22, 8787, 5432
+
+Не коммитить `.env`, `*.session`, `api_hash` и пароли. Пустой коммит не создавать.
