@@ -13,6 +13,8 @@ from telethon.errors import (
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import MessageMediaWebPage
 
+from src.bot import register_bot
+from src.gate import SubscriberList
 from src.match import in_topic, matching_keyword
 from src.settings import require_settings
 from src.targets import TOPICS
@@ -182,9 +184,18 @@ async def run():
         settings["api_id"],
         settings["api_hash"],
     )
+    bot_client = TelegramClient(
+        settings["bot_session_path"],
+        settings["api_id"],
+        settings["api_hash"],
+    )
     await client.connect()
     if not await client.is_user_authorized():
         raise SystemExit("Аккаунт не авторизован. Сначала нужен вход.")
+    await bot_client.start(bot_token=settings["bot_token"])
+    me = await client.get_me()
+    subscribers = SubscriberList(settings["subscribers_path"])
+    register_bot(bot_client, subscribers, settings["bot_password"], me.id)
     bot = await client.get_entity(username)
     allowed, pending = await watch_map(client)
     client.add_event_handler(
@@ -193,8 +204,16 @@ async def run():
     )
     if pending:
         asyncio.create_task(retry_pending(client, allowed, pending))
-    log.info("Слушаю %s чатов, бот @%s", len(allowed), username)
-    await client.run_until_disconnected()
+    log.info(
+        "Слушаю %s чатов, бот @%s, подписчиков %s",
+        len(allowed),
+        username,
+        len(subscribers.ids()),
+    )
+    await asyncio.gather(
+        client.run_until_disconnected(),
+        bot_client.run_until_disconnected(),
+    )
 
 
 def main():

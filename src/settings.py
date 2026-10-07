@@ -18,7 +18,7 @@ def require_settings():
     load_dotenv()
     missing = [
         name
-        for name in ("API_ID", "API_HASH", "PHONE", "BOT_TOKEN")
+        for name in ("API_ID", "API_HASH", "PHONE", "BOT_TOKEN", "BOT_PASSWORD")
         if not os.environ.get(name)
     ]
     if missing:
@@ -28,5 +28,8 @@ def require_settings():
         "api_hash": os.environ["API_HASH"],
         "phone": os.environ["PHONE"],
         "bot_token": os.environ["BOT_TOKEN"],
+        "bot_password": os.environ["BOT_PASSWORD"],
         "session_path": os.environ.get("SESSION_PATH", "kimparser.session"),
+        "bot_session_path": os.environ.get("BOT_SESSION_PATH", "bot.session"),
+        "subscribers_path": os.environ.get("SUBSCRIBERS_PATH", "subscribers.json"),
     }

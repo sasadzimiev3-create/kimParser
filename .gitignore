@@ -6,6 +6,7 @@
 login_state.json
 login_code
 login_password
+subscribers.json
 __pycache__/
 .venv/
 venv/
