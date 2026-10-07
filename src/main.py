@@ -29,6 +29,7 @@ def _dbg(hyp, loc, msg, data):
 
 
 _DBG_SAMPLE = {}
+_DBG_LIVE = {}
 # endregion
 
 
@@ -194,6 +195,9 @@ def build_handler(client, bot, allowed):
         topics = allowed.get(event.chat_id)
         # region agent log
         if topics:
+            seen = _DBG_LIVE.setdefault(event.chat_id, [0, None])
+            seen[0] += 1
+            seen[1] = event.message.id
             r = event.message.reply_to
             _dbg("BC", "main.py:on_message", "live message in watched chat", {"chat": event.chat_id, "msg": event.message.id, "forum_topic": getattr(r, "forum_topic", None), "top_id": getattr(r, "reply_to_top_id", None), "reply_to_msg_id": getattr(r, "reply_to_msg_id", None), "in_topic": in_topic(event.message.id, r, topics), "has_text": message_text(event.message) is not None, "keyword": matching_keyword(message_text(event.message) or "")})
         # endregion
@@ -250,19 +254,17 @@ async def run():
     if pending:
         asyncio.create_task(retry_pending(client, allowed, pending))
     # region agent log
-    async def _dbg_test(event):
-        if not event.is_private or (event.raw_text or "").strip() != "/debugtest":
-            return
-        _dbg("DE", "main.py:_dbg_test", "debugtest requested", {"sender": event.sender_id, "status": subscribers.status(event.sender_id), "has_sample": "msg" in _DBG_SAMPLE})
-        if subscribers.status(event.sender_id) != "connected" or "msg" not in _DBG_SAMPLE:
-            return
-        try:
-            await client.forward_messages(bot, _DBG_SAMPLE["msg"])
-            _dbg("DE", "main.py:_dbg_test", "listener forwarded sample to bot", {"chat": _DBG_SAMPLE["chat"], "msg": _DBG_SAMPLE["msg"].id})
-        except Exception as error:
-            _dbg("DE", "main.py:_dbg_test", "listener forward failed", {"error": type(error).__name__})
+    async def _dbg_poll():
+        while True:
+            await asyncio.sleep(120)
+            for peer_id in list(allowed):
+                try:
+                    last = await client.get_messages(peer_id, limit=1)
+                    _dbg("C", "main.py:_dbg_poll", "chat head vs live events", {"chat": peer_id, "head_id": last[0].id if last else None, "live_count": _DBG_LIVE.get(peer_id, [0, None])[0], "last_live_id": _DBG_LIVE.get(peer_id, [0, None])[1]})
+                except Exception as error:
+                    _dbg("C", "main.py:_dbg_poll", "head check failed", {"chat": peer_id, "error": type(error).__name__})
 
-    bot_client.add_event_handler(_dbg_test, events.NewMessage(incoming=True))
+    asyncio.create_task(_dbg_poll())
     # endregion
     log.info(
         "Слушаю %s чатов, бот @%s, подписчиков %s",
