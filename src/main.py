@@ -54,6 +54,10 @@ async def ensure_joined(client, entity, username, quiet):
         if not quiet:
             log.info("Заявка в @%s отправлена, ждём одобрения администратора", username)
         return "pending"
+    except FloodWaitError:
+        if not quiet:
+            log.info("Вход в @%s отложен, Telegram просит подождать", username)
+        return "pending"
     except Exception:
         log.exception("Не удалось войти в @%s", username)
         return "fail"
