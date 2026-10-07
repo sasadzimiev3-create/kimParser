@@ -1,8 +1,12 @@
+import re
+
 from src.targets import KEYWORDS
 
 
 def normalize(text):
-    return text.casefold().replace("ё", "е")
+    folded = text.casefold().replace("ё", "е")
+    without_punctuation = re.sub(r"[^\w\s]+", " ", folded)
+    return re.sub(r"\s+", " ", without_punctuation).strip()
 
 
 def matching_keyword(text):

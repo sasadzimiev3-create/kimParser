@@ -23,6 +23,17 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(matching_keyword("надо отснять интервью"), "отснять")
         self.assertEqual(matching_keyword("можно снять ролик"), "снять")
 
+    def test_case_and_punctuation(self):
+        self.assertEqual(matching_keyword("Оператор"), "оператор")
+        self.assertEqual(matching_keyword("ОПЕРАТОР"), "оператор")
+        self.assertEqual(matching_keyword("Оператор,"), "оператор")
+        self.assertEqual(matching_keyword("Оператор."), "оператор")
+        self.assertEqual(matching_keyword("нужен оператор, на завтра"), "оператор")
+        self.assertEqual(matching_keyword("Съёмка."), "съёмка")
+        self.assertEqual(matching_keyword("СЪЁМОЧНЫЙ ДЕНЬ."), "съёмочный день")
+        self.assertEqual(matching_keyword("«видеограф»"), "видеограф")
+        self.assertEqual(matching_keyword("смена!"), "смена")
+
     def test_no_match(self):
         self.assertIsNone(matching_keyword("ищем монтажёра"))
         self.assertIsNone(matching_keyword(""))
