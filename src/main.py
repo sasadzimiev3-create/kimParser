@@ -7,6 +7,7 @@ import urllib.request
 from telethon import TelegramClient, events, utils
 from telethon.errors import (
     FloodWaitError,
+    InviteRequestSentError,
     UserAlreadyParticipantError,
 )
 from telethon.tl.functions.channels import JoinChannelRequest
@@ -40,47 +41,84 @@ def message_text(message):
     return text or None
 
 
-async def ensure_joined(client, entity, username):
+async def ensure_joined(client, entity, username, quiet):
     try:
         await client(JoinChannelRequest(entity))
-        log.info("Вступил в @%s", username)
     except UserAlreadyParticipantError:
-        log.info("Уже состоит в @%s", username)
+        if not quiet:
+            log.info("Уже состоит в @%s", username)
+        return "ok"
+    except InviteRequestSentError:
+        if not quiet:
+            log.info("Заявка в @%s отправлена, ждём одобрения администратора", username)
+        return "pending"
     except Exception:
         log.exception("Не удалось войти в @%s", username)
-        return False
-    return True
+        return "fail"
+    if not quiet:
+        log.info("Вступил в @%s", username)
+    return "ok"
+
+
+async def attach_chat(client, allowed, username, topic_ids, quiet):
+    try:
+        entity = await client.get_entity(username)
+    except Exception:
+        if not quiet:
+            log.exception("Чат @%s не найден", username)
+        return "fail"
+    status = await ensure_joined(client, entity, username, quiet)
+    if status != "ok":
+        return status
+    entity = await client.get_entity(username)
+    peer_id = utils.get_peer_id(entity)
+    allowed[peer_id] = set(topic_ids)
+    if quiet:
+        log.info("Заявку в @%s приняли, темы подключены", username)
+        return "ok"
+    forum = bool(getattr(entity, "forum", False))
+    log.info("@%s id=%s forum=%s topics=%s", username, peer_id, forum, topic_ids)
+    for topic_id in topic_ids:
+        try:
+            found = await client.get_messages(entity, limit=1, reply_to=topic_id)
+        except Exception:
+            log.exception("Тема %s в @%s недоступна", topic_id, username)
+            continue
+        if found:
+            log.info(
+                "Тема %s в @%s читается, последнее сообщение %s",
+                topic_id,
+                username,
+                found[0].id,
+            )
+        else:
+            log.warning("Тема %s в @%s пустая или закрыта", topic_id, username)
+    return "ok"
 
 
 async def watch_map(client):
     allowed = {}
+    pending = []
     for username, topic_ids in TOPICS.items():
-        try:
-            entity = await client.get_entity(username)
-        except Exception:
-            log.exception("Чат @%s не найден", username)
-            continue
-        joined = await ensure_joined(client, entity, username)
-        if not joined:
-            continue
-        entity = await client.get_entity(username)
-        peer_id = utils.get_peer_id(entity)
-        allowed[peer_id] = set(topic_ids)
-        forum = bool(getattr(entity, "forum", False))
-        log.info("@%s id=%s forum=%s topics=%s", username, peer_id, forum, topic_ids)
-        for topic_id in topic_ids:
-            try:
-                found = await client.get_messages(entity, limit=1, reply_to=topic_id)
-            except Exception:
-                log.exception("Тема %s в @%s недоступна", topic_id, username)
-                continue
-            if found:
-                log.info("Тема %s в @%s читается, последнее сообщение %s", topic_id, username, found[0].id)
-            else:
-                log.warning("Тема %s в @%s пустая или закрыта", topic_id, username)
-    if not allowed:
+        status = await attach_chat(client, allowed, username, topic_ids, quiet=False)
+        if status == "pending":
+            pending.append((username, topic_ids))
+    if not allowed and not pending:
         raise SystemExit("Нет ни одного доступного чата")
-    return allowed
+    return allowed, pending
+
+
+async def retry_pending(client, allowed, pending):
+    while pending:
+        await asyncio.sleep(180)
+        still_pending = []
+        for username, topic_ids in pending:
+            status = await attach_chat(client, allowed, username, topic_ids, quiet=True)
+            if status == "pending":
+                still_pending.append((username, topic_ids))
+            elif status != "ok":
+                log.error("Чат @%s пропущен", username)
+        pending[:] = still_pending
 
 
 async def deliver(client, bot, event):
@@ -148,11 +186,13 @@ async def run():
     if not await client.is_user_authorized():
         raise SystemExit("Аккаунт не авторизован. Сначала нужен вход.")
     bot = await client.get_entity(username)
-    allowed = await watch_map(client)
+    allowed, pending = await watch_map(client)
     client.add_event_handler(
         build_handler(client, bot, allowed),
-        events.NewMessage(chats=list(allowed), incoming=True),
+        events.NewMessage(incoming=True),
     )
+    if pending:
+        asyncio.create_task(retry_pending(client, allowed, pending))
     log.info("Слушаю %s чатов, бот @%s", len(allowed), username)
     await client.run_until_disconnected()
 
