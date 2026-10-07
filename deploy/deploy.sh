@@ -9,6 +9,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST" "mkdir -p '$DEST'"
 
 rsync -az --delete --timeout=60 \
   --exclude '.git/' \
+  --exclude '.DS_Store' \
   --exclude '.env' \
   --exclude '*.session' \
   --exclude '__pycache__/' \
@@ -17,4 +18,4 @@ rsync -az --delete --timeout=60 \
   "$ROOT/" "$HOST:$DEST/"
 
 ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST" \
-  "if systemctl cat kimparser.service >/dev/null 2>&1; then systemctl restart kimparser; fi"
+  "rm -f '$DEST/.DS_Store' && chown -R root:root '$DEST' && if systemctl cat kimparser.service >/dev/null 2>&1; then systemctl restart kimparser; fi"
