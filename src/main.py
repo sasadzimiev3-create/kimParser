@@ -21,6 +21,13 @@ from src.targets import TOPICS
 
 log = logging.getLogger("kimparser")
 
+# region agent log
+def _dbg(hyp, loc, msg, data):
+    import time
+    with open("/var/log/kimparser-debug-820a6e.log", "a") as f:
+        f.write(json.dumps({"sessionId": "820a6e", "runId": "pre-fix", "hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": int(time.time() * 1000)}, ensure_ascii=False) + "\n")
+# endregion
+
 
 def bot_identity(token):
     request = urllib.request.Request(
@@ -44,6 +51,9 @@ def message_text(message):
 
 
 async def ensure_joined(client, entity, username, quiet):
+    # region agent log
+    _dbg("A", "main.py:ensure_joined", "before join", {"chat": username, "left": getattr(entity, "left", None), "quiet": quiet})
+    # endregion
     try:
         await client(JoinChannelRequest(entity))
     except UserAlreadyParticipantError:
@@ -90,6 +100,13 @@ async def attach_chat(client, allowed, username, topic_ids, quiet):
         except Exception:
             log.exception("Тема %s в @%s недоступна", topic_id, username)
             continue
+        # region agent log
+        try:
+            sample = await client.get_messages(entity, limit=40, reply_to=topic_id)
+            _dbg("B", "main.py:attach_chat", "topic sample", {"chat": username, "topic": topic_id, "n": len(sample), "in_topic_false": [m.id for m in sample if not in_topic(m.id, m.reply_to, set(topic_ids))], "with_text": sum(1 for m in sample if message_text(m)), "keyword_hits": sum(1 for m in sample if message_text(m) and matching_keyword(message_text(m)))})
+        except Exception as error:
+            _dbg("B", "main.py:attach_chat", "topic sample failed", {"chat": username, "topic": topic_id, "error": type(error).__name__})
+        # endregion
         if found:
             log.info(
                 "Тема %s в @%s читается, последнее сообщение %s",
@@ -156,6 +173,11 @@ async def deliver(client, bot, event):
 def build_handler(client, bot, allowed):
     async def on_message(event):
         topics = allowed.get(event.chat_id)
+        # region agent log
+        if topics:
+            r = event.message.reply_to
+            _dbg("BC", "main.py:on_message", "live message in watched chat", {"chat": event.chat_id, "msg": event.message.id, "forum_topic": getattr(r, "forum_topic", None), "top_id": getattr(r, "reply_to_top_id", None), "reply_to_msg_id": getattr(r, "reply_to_msg_id", None), "in_topic": in_topic(event.message.id, r, topics), "has_text": message_text(event.message) is not None, "keyword": matching_keyword(message_text(event.message) or "")})
+        # endregion
         if not topics or not in_topic(event.message.id, event.message.reply_to, topics):
             return
         text = message_text(event.message)
