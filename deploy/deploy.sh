@@ -12,10 +12,14 @@ rsync -az --delete --timeout=60 \
   --exclude '.DS_Store' \
   --exclude '.env' \
   --exclude '*.session' \
+  --exclude '*.session-journal' \
+  --exclude 'login_state.json' \
+  --exclude 'login_code' \
+  --exclude 'login_password' \
   --exclude '__pycache__/' \
   --exclude '.venv/' \
   --exclude 'venv/' \
   "$ROOT/" "$HOST:$DEST/"
 
 ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST" \
-  "rm -f '$DEST/.DS_Store' && chown -R root:root '$DEST' && if systemctl cat kimparser.service >/dev/null 2>&1; then systemctl restart kimparser; fi"
+  "rm -f '$DEST/.DS_Store' && chown -R root:root '$DEST' && if [ -x '$DEST/.venv/bin/pip' ]; then '$DEST/.venv/bin/pip' install -q -r '$DEST/requirements.txt'; fi && if systemctl is-active --quiet kimparser; then systemctl restart kimparser; fi"

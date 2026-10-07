@@ -1,0 +1,14 @@
+[Unit]
+Description=kimparser Telegram topic listener
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kimparser
+EnvironmentFile=/opt/kimparser/.env
+ExecStart=/opt/kimparser/.venv/bin/python -m src.main
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

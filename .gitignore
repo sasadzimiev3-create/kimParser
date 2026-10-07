@@ -1,6 +1,10 @@
 .DS_Store
 .env
 *.session
+*.session-journal
+login_state.json
+login_code
+login_password
 __pycache__/
 .venv/
 venv/
