@@ -82,16 +82,21 @@ class MenuTextTests(unittest.TestCase):
                     "<b>⚙️ Меню:</b> → чаты",
                     "",
                     "Ваши чаты:",
-                    "1. @jetlagchat — тема 44320 (подключаю) — https://t.me/jetlagchat/44320",
+                    "1. @jetlagchat - тема 44320 (подключаю)",
+                    "https://t.me/jetlagchat/44320",
                     "2. Work",
                 ]
             ),
         )
-        self.assertEqual(label + " — https://t.me/jetlagchat/44320", line)
+        self.assertEqual(label + "\nhttps://t.me/jetlagchat/44320", line)
+        self.assertEqual(
+            chat_menu_line("JETLAG CHAT", "вакансии", None, "active", "https://t.me/jetlagchat/44320"),
+            "JETLAG CHAT - вакансии\nhttps://t.me/jetlagchat/44320",
+        )
         self.assertEqual(chat_menu_line("Work", None, None, "active", ""), "Work")
         self.assertIn("Пока пусто", chats_text([]))
         self.assertIn("Ваши ключ слова:", words_text(["оператор"]))
-        self.assertIn("&lt;b&gt;", chats_text(["<b> — https://t.me/chat"]))
+        self.assertIn("&lt;b&gt;", chats_text(["<b>\nhttps://t.me/chat"]))
 
     def test_hit_note_sits_under_the_message(self):
         note = hit_note("оператор", "@jetlagchat — тема 44320", "https://t.me/jetlagchat/44320")

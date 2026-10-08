@@ -56,9 +56,9 @@ def menu_text(chat_count, word_count, top):
 def chat_label(title, topic_title, topic_id, status):
     name = title or "Чат"
     if topic_title:
-        name = "{} — {}".format(name, topic_title)
+        name = "{} - {}".format(name, topic_title)
     elif topic_id:
-        name = "{} — тема {}".format(name, topic_id)
+        name = "{} - тема {}".format(name, topic_id)
     if status == "requested":
         name = "{} (заявка отправлена)".format(name)
     elif status == "pending":
@@ -69,11 +69,11 @@ def chat_label(title, topic_title, topic_id, status):
 
 
 def chat_menu_line(title, topic_title, topic_id, status, link):
-    label = chat_label(title, topic_title, topic_id, status)
+    label = chat_label(title, topic_title, topic_id, status).replace("—", "-").replace("–", "-")
     url = (link or "").strip()
     if not url or url in label:
         return label
-    return "{} — {}".format(label, url)
+    return "{}\n{}".format(label, url)
 
 
 def hit_note(keyword, chat_name, chat_link):
