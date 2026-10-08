@@ -122,7 +122,7 @@ async def watch_map(client):
 
 async def retry_pending(client, allowed, pending):
     while pending:
-        await asyncio.sleep(180)
+        await asyncio.sleep(7200)
         still_pending = []
         for username, topic_ids, requested in pending:
             status = await attach_chat(
