@@ -10,7 +10,6 @@ from telethon.tl.types import MessageMediaWebPage
 from src.access import refresh_access
 from src.bot import register_bot
 from src.db import Database
-from src.debug_session import agent_log
 from src.gate import SubscriberList, delivery_tag_text
 from src.links import private_message_link
 from src.match import matched_chat, recipients
@@ -45,15 +44,6 @@ async def mark_forward(client, bot, sent, peer_id, msg_id):
     message = sent[0] if isinstance(sent, (list, tuple)) else sent
     reply_to = getattr(message, "id", None)
     await client.send_message(bot, delivery_tag_text(peer_id, msg_id), reply_to=reply_to)
-    # #region agent log
-    agent_log(
-        "A",
-        "main.py:mark_forward",
-        "sent delivery tag",
-        {"peer": peer_id, "msg": msg_id, "reply": reply_to},
-        run_id="post-fix",
-    )
-    # #endregion
 
 
 async def deliver(client, bot, event):
@@ -101,43 +91,11 @@ def build_handler(client, bot, db):
         rows = db.matching_rows(event.chat_id)
         if not rows:
             return
-        reply = event.message.reply_to
         text = message_text(event.message)
         if text is None:
-            raw = (event.message.raw_text or "").strip()
-            # #region agent log
-            if raw:
-                agent_log(
-                    "C",
-                    "main.py:_handle",
-                    "skipped non-text",
-                    {
-                        "chat": event.chat_id,
-                        "msg": event.message.id,
-                        "media": type(event.message.media).__name__ if event.message.media else "",
-                        "raw_len": len(raw),
-                    },
-                )
-            # #endregion
             return
-        found = recipients(text, rows, event.message.id, reply)
+        found = recipients(text, rows, event.message.id, event.message.reply_to)
         if not found:
-            # #region agent log
-            agent_log(
-                "B",
-                "main.py:_handle",
-                "no recipients",
-                {
-                    "chat": event.chat_id,
-                    "msg": event.message.id,
-                    "forum": bool(getattr(reply, "forum_topic", False)) if reply else False,
-                    "top": getattr(reply, "reply_to_top_id", None) if reply else None,
-                    "reply_to": getattr(reply, "reply_to_msg_id", None) if reply else None,
-                    "rows": len(rows),
-                    "text_len": len(text),
-                },
-            )
-            # #endregion
             return
         planned = []
         for user_id, keyword in found:
@@ -154,26 +112,10 @@ def build_handler(client, bot, db):
                 link = chat.get("link") or ""
             planned.append((user_id, keyword, name, link))
         db.plan_delivery(event.chat_id, event.message.id, planned)
-        # #region agent log
-        agent_log(
-            "E",
-            "main.py:_handle",
-            "planned",
-            {
-                "chat": event.chat_id,
-                "msg": event.message.id,
-                "keywords": sorted({keyword for _, keyword in found}),
-                "users": len(found),
-            },
-        )
-        # #endregion
         try:
             kind = await deliver(client, bot, event)
         except Exception:
             log.exception("Доставка боту не удалась")
-            # #region agent log
-            agent_log("E", "main.py:_handle", "deliver failed", {"chat": event.chat_id, "msg": event.message.id})
-            # #endregion
             return
         log.info(
             "Совпадение chat=%s msg=%s users=%s keywords=%s via=%s",
@@ -185,80 +127,6 @@ def build_handler(client, bot, db):
         )
 
     return on_message
-
-
-async def debug_probe(client, bot, db):
-    await asyncio.sleep(3)
-    topics = (
-        (-1001391677315, 44320),
-        (-1001391677315, 44329),
-        (-1002053584336, 196),
-        (-1002053584336, 131),
-        (-1001138391813, 264492),
-    )
-    for peer, topic in topics:
-        rows = db.matching_rows(peer)
-        try:
-            messages = await client.get_messages(peer, limit=5, reply_to=topic)
-        except Exception as error:
-            # #region agent log
-            agent_log(
-                "D",
-                "main.py:debug_probe",
-                "topic read failed",
-                {"peer": peer, "topic": topic, "error": type(error).__name__},
-            )
-            # #endregion
-            continue
-        for msg in messages or []:
-            reply = msg.reply_to
-            visible = message_text(msg)
-            raw = (msg.raw_text or "").strip()
-            found = recipients(raw, rows, msg.id, reply) if raw else []
-            age = None
-            if msg.date is not None:
-                age = int(__import__("time").time() - msg.date.timestamp())
-            # #region agent log
-            agent_log(
-                "B" if visible and not found else ("C" if raw and not visible else "D"),
-                "main.py:debug_probe",
-                "recent topic message",
-                {
-                    "peer": peer,
-                    "topic": topic,
-                    "msg": msg.id,
-                    "age_s": age,
-                    "media": type(msg.media).__name__ if msg.media else "",
-                    "has_text": bool(visible),
-                    "raw_len": len(raw),
-                    "forum": bool(getattr(reply, "forum_topic", False)) if reply else False,
-                    "top": getattr(reply, "reply_to_top_id", None) if reply else None,
-                    "reply_to": getattr(reply, "reply_to_msg_id", None) if reply else None,
-                    "reply_type": type(reply).__name__ if reply else "",
-                    "keywords": [item[1] for item in found],
-                    "rows": len(rows),
-                },
-            )
-            # #endregion
-    try:
-        db.plan_delivery(
-            -1001391677315,
-            243544,
-            [(0, "оператор", "JETLAG CHAT - вакансии", "https://t.me/jetlagchat/44320")],
-        )
-        sample = await client.get_messages(-1001391677315, ids=243544)
-        sent = await client.forward_messages(bot, sample)
-        # #region agent log
-        agent_log("A", "main.py:debug_probe", "forwarded sample to bot", {"msg": 243544})
-        # #endregion
-        await mark_forward(client, bot, sent, -1001391677315, 243544)
-    except Exception as error:
-        # #region agent log
-        agent_log("A", "main.py:debug_probe", "forward sample failed", {"error": type(error).__name__})
-        # #endregion
-    # #region agent log
-    agent_log("D", "main.py:debug_probe", "probe finished", {})
-    # #endregion
 
 
 async def retry_access(client, db):
@@ -315,7 +183,6 @@ async def run():
         events.NewMessage(incoming=True),
     )
     asyncio.create_task(retry_access(client, db))
-    asyncio.create_task(debug_probe(client, bot, db))
     if not db.active_peer_count():
         log.warning("Нет подключённых чатов, меню бота работает")
     log.info(

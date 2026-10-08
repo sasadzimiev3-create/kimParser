@@ -3,7 +3,6 @@ import logging
 from telethon import Button, events, utils
 
 from src.access import subscribe_link, unsubscribe_chat
-from src.debug_session import agent_log
 from src.gate import (
     ASK_PASSWORD,
     ASK_START,
@@ -202,35 +201,11 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
         await _gate(event)
 
     async def _deliver_alert(event):
-        fwd = event.message.fwd_from
-        # #region agent log
-        agent_log(
-            "A",
-            "bot.py:_deliver_alert",
-            "forward header",
-            {
-                "has_fwd": fwd is not None,
-                "from_id": utils.get_peer_id(fwd.from_id) if fwd is not None and getattr(fwd, "from_id", None) else None,
-                "channel_post": getattr(fwd, "channel_post", None) if fwd is not None else None,
-                "saved_msg": getattr(fwd, "saved_from_msg_id", None) if fwd is not None else None,
-                "saved_peer": utils.get_peer_id(fwd.saved_from_peer) if fwd is not None and getattr(fwd, "saved_from_peer", None) else None,
-                "text_len": len(event.raw_text or ""),
-            },
-        )
-        # #endregion
-        source = delivery_source(event, db)
-        # #region agent log
-        agent_log(
-            "A",
-            "bot.py:_deliver_alert",
-            "parsed source",
-            {"source": list(source) if source else None},
-        )
-        # #endregion
         tagged = delivery_tag(event.raw_text)
         if tagged:
             await _deliver_tagged(event, tagged)
             return
+        source = delivery_source(event, db)
         if source is None:
             if event.message.fwd_from:
                 return
@@ -238,14 +213,6 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
             return
         peer_id, msg_id = source
         targets = db.claim_delivery(peer_id, msg_id)
-        # #region agent log
-        agent_log(
-            "E",
-            "bot.py:_deliver_alert",
-            "claim",
-            {"peer": peer_id, "msg": msg_id, "targets": len(targets)},
-        )
-        # #endregion
         if not targets:
             log.error("Нет плана доставки peer=%s msg=%s", peer_id, msg_id)
             return
@@ -254,27 +221,9 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
     async def _deliver_tagged(event, tagged):
         peer_id, msg_id = tagged
         targets = db.claim_delivery(peer_id, msg_id)
-        # #region agent log
-        agent_log(
-            "A",
-            "bot.py:_deliver_tagged",
-            "tag claim",
-            {"peer": peer_id, "msg": msg_id, "targets": len(targets)},
-            run_id="post-fix",
-        )
-        # #endregion
         if not targets:
             return
         origin = await event.get_reply_message()
-        # #region agent log
-        agent_log(
-            "A",
-            "bot.py:_deliver_tagged",
-            "tag origin",
-            {"has_origin": origin is not None, "peer": peer_id, "msg": msg_id},
-            run_id="post-fix",
-        )
-        # #endregion
         if origin is None:
             for user_id, _keyword, _chat_name, _chat_link in targets:
                 db.release_delivery(peer_id, msg_id, user_id)
