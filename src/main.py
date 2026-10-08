@@ -11,7 +11,7 @@ from src.access import refresh_access
 from src.bot import register_bot
 from src.db import Database
 from src.debug_session import agent_log
-from src.gate import SubscriberList
+from src.gate import SubscriberList, delivery_tag_text
 from src.links import private_message_link
 from src.match import matched_chat, recipients
 from src.menu import chat_label, install_menu_button
@@ -41,10 +41,26 @@ def message_text(message):
     return text or None
 
 
+async def mark_forward(client, bot, sent, peer_id, msg_id):
+    message = sent[0] if isinstance(sent, (list, tuple)) else sent
+    reply_to = getattr(message, "id", None)
+    await client.send_message(bot, delivery_tag_text(peer_id, msg_id), reply_to=reply_to)
+    # #region agent log
+    agent_log(
+        "A",
+        "main.py:mark_forward",
+        "sent delivery tag",
+        {"peer": peer_id, "msg": msg_id, "reply": reply_to},
+        run_id="post-fix",
+    )
+    # #endregion
+
+
 async def deliver(client, bot, event):
     message = event.message
     try:
-        await client.forward_messages(bot, message)
+        sent = await client.forward_messages(bot, message)
+        await mark_forward(client, bot, sent, event.chat_id, message.id)
         return "forward"
     except Exception as error:
         name = type(error).__name__
@@ -53,7 +69,8 @@ async def deliver(client, bot, event):
             log.warning("Flood wait %s с", seconds)
             await asyncio.sleep(seconds)
             try:
-                await client.forward_messages(bot, message)
+                sent = await client.forward_messages(bot, message)
+                await mark_forward(client, bot, sent, event.chat_id, message.id)
                 return "forward"
             except Exception:
                 log.exception("Оригинал не переслался после ожидания")
@@ -224,11 +241,17 @@ async def debug_probe(client, bot, db):
             )
             # #endregion
     try:
+        db.plan_delivery(
+            -1001391677315,
+            243544,
+            [(0, "оператор", "JETLAG CHAT - вакансии", "https://t.me/jetlagchat/44320")],
+        )
         sample = await client.get_messages(-1001391677315, ids=243544)
-        await client.forward_messages(bot, sample)
+        sent = await client.forward_messages(bot, sample)
         # #region agent log
         agent_log("A", "main.py:debug_probe", "forwarded sample to bot", {"msg": 243544})
         # #endregion
+        await mark_forward(client, bot, sent, -1001391677315, 243544)
     except Exception as error:
         # #region agent log
         agent_log("A", "main.py:debug_probe", "forward sample failed", {"error": type(error).__name__})

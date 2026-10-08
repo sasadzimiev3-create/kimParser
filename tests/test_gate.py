@@ -10,6 +10,7 @@ from src.gate import (
     CONNECTED,
     SubscriberList,
     handle_private,
+    delivery_tag,
     is_listener_alert,
     is_menu,
 )
@@ -46,6 +47,9 @@ class GateTests(unittest.TestCase):
     def test_listener_alert(self):
         self.assertTrue(is_listener_alert(5, 5, True, "Оператор"))
         self.assertTrue(is_listener_alert(5, 5, False, "текст\n\nhttps://t.me/jetlagchat/1"))
+        self.assertTrue(is_listener_alert(5, 5, False, "kp:-1001391677315:243544"))
+        self.assertEqual(delivery_tag("kp:-1001391677315:243544"), (-1001391677315, 243544))
+        self.assertIsNone(delivery_tag("оператор"))
         self.assertFalse(is_listener_alert(5, 5, False, "/start"))
         self.assertFalse(is_listener_alert(5, 5, False, "/menu"))
         self.assertFalse(is_listener_alert(9, 5, True, "Оператор"))

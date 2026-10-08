@@ -4,7 +4,15 @@ from telethon import Button, events, utils
 
 from src.access import subscribe_link, unsubscribe_chat
 from src.debug_session import agent_log
-from src.gate import ASK_PASSWORD, ASK_START, handle_private, is_listener_alert, is_menu, is_start
+from src.gate import (
+    ASK_PASSWORD,
+    ASK_START,
+    delivery_tag,
+    handle_private,
+    is_listener_alert,
+    is_menu,
+    is_start,
+)
 from src.links import parse_link, peer_id_from_channel, trailing_telegram_link
 from src.menu import (
     ADD_CHAT_TEXT,
@@ -79,15 +87,15 @@ async def present(event, text, rows, prefer_edit):
     await event.respond(text, parse_mode="html", buttons=buttons)
 
 
-async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_id):
-    text = event.raw_text or ""
+async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_id, origin=None):
+    text = (origin.raw_text if origin is not None else event.raw_text) or ""
     connected = set(subscribers.ids())
     for user_id, keyword, chat_name, chat_link in targets:
         if user_id == skip_id or user_id not in connected:
             db.finish_delivery(peer_id, msg_id, user_id)
             continue
         note = hit_note(keyword, chat_name, chat_link)
-        delivered = await _send_one(event, user_id, text, subscribers, note)
+        delivered = await _send_one(event, user_id, text, subscribers, note, origin)
         if delivered:
             db.finish_delivery(peer_id, msg_id, user_id)
             try:
@@ -100,9 +108,12 @@ async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_i
             db.release_delivery(peer_id, msg_id, user_id)
 
 
-async def _send_one(event, user_id, text, subscribers, note):
+async def _send_one(event, user_id, text, subscribers, note, origin=None):
     try:
-        await event.forward_to(user_id)
+        if origin is None:
+            await event.forward_to(user_id)
+        else:
+            await event.client.forward_messages(user_id, origin)
     except Exception as error:
         name = type(error).__name__
         if any(part in name for part in ("Forbidden", "Blocked", "Deactivated")):
@@ -216,7 +227,13 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
             {"source": list(source) if source else None},
         )
         # #endregion
+        tagged = delivery_tag(event.raw_text)
+        if tagged:
+            await _deliver_tagged(event, tagged)
+            return
         if source is None:
+            if event.message.fwd_from:
+                return
             log.error("Не понял, откуда пересылка")
             return
         peer_id, msg_id = source
@@ -233,6 +250,45 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
             log.error("Нет плана доставки peer=%s msg=%s", peer_id, msg_id)
             return
         await relay_targets(event, targets, subscribers, listener_id, db, peer_id, msg_id)
+
+    async def _deliver_tagged(event, tagged):
+        peer_id, msg_id = tagged
+        targets = db.claim_delivery(peer_id, msg_id)
+        # #region agent log
+        agent_log(
+            "A",
+            "bot.py:_deliver_tagged",
+            "tag claim",
+            {"peer": peer_id, "msg": msg_id, "targets": len(targets)},
+            run_id="post-fix",
+        )
+        # #endregion
+        if not targets:
+            return
+        origin = await event.get_reply_message()
+        # #region agent log
+        agent_log(
+            "A",
+            "bot.py:_deliver_tagged",
+            "tag origin",
+            {"has_origin": origin is not None, "peer": peer_id, "msg": msg_id},
+            run_id="post-fix",
+        )
+        # #endregion
+        if origin is None:
+            for user_id, _keyword, _chat_name, _chat_link in targets:
+                db.release_delivery(peer_id, msg_id, user_id)
+            return
+        await relay_targets(
+            event,
+            targets,
+            subscribers,
+            listener_id,
+            db,
+            peer_id,
+            msg_id,
+            origin,
+        )
 
     async def _gate(event):
         previous = subscribers.status(event.sender_id)

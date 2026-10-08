@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 
@@ -24,10 +25,26 @@ def is_menu(text):
     return command_name(text) == "/menu"
 
 
+_TAG = re.compile(r"^kp:(-?\d+):(\d+)$")
+
+
+def delivery_tag(text):
+    match = _TAG.match((text or "").strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def delivery_tag_text(peer_id, msg_id):
+    return "kp:{}:{}".format(peer_id, msg_id)
+
+
 def is_listener_alert(sender_id, listener_id, forwarded, text):
     if sender_id != listener_id:
         return False
     if forwarded:
+        return True
+    if delivery_tag(text):
         return True
     return "\n\nhttps://t.me/" in (text or "")
 
