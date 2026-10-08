@@ -15,7 +15,7 @@ from telethon.tl.types import MessageMediaWebPage
 
 from src.bot import register_bot
 from src.gate import SubscriberList
-from src.match import in_topic, matching_keyword
+from src.match import in_topic, matching_keyword, topic_id_from_reply
 from src.settings import require_settings
 from src.targets import TOPICS
 
@@ -30,6 +30,8 @@ def _dbg(hyp, loc, msg, data):
 
 _DBG_SAMPLE = {}
 _DBG_LIVE = {}
+_DBG_SEEN = {}
+_DBG_HEAD = {-1002053584336: 19665}
 # endregion
 
 
@@ -198,6 +200,7 @@ def build_handler(client, bot, allowed):
             seen = _DBG_LIVE.setdefault(event.chat_id, [0, None])
             seen[0] += 1
             seen[1] = event.message.id
+            _DBG_SEEN.setdefault(event.chat_id, set()).add(event.message.id)
             r = event.message.reply_to
             _dbg("BC", "main.py:on_message", "live message in watched chat", {"chat": event.chat_id, "msg": event.message.id, "forum_topic": getattr(r, "forum_topic", None), "top_id": getattr(r, "reply_to_top_id", None), "reply_to_msg_id": getattr(r, "reply_to_msg_id", None), "in_topic": in_topic(event.message.id, r, topics), "has_text": message_text(event.message) is not None, "keyword": matching_keyword(message_text(event.message) or "")})
         # endregion
@@ -261,6 +264,13 @@ async def run():
                 try:
                     last = await client.get_messages(peer_id, limit=1)
                     _dbg("C", "main.py:_dbg_poll", "chat head vs live events", {"chat": peer_id, "head_id": last[0].id if last else None, "live_count": _DBG_LIVE.get(peer_id, [0, None])[0], "last_live_id": _DBG_LIVE.get(peer_id, [0, None])[1]})
+                    head = last[0].id if last else None
+                    prev = _DBG_HEAD.get(peer_id)
+                    _DBG_HEAD[peer_id] = head
+                    missed = [i for i in range(prev + 1, head + 1) if i not in _DBG_SEEN.get(peer_id, set())][:50] if prev and head and head > prev else []
+                    if missed:
+                        got = await client.get_messages(peer_id, ids=missed)
+                        _dbg("F", "main.py:_dbg_poll", "ids not seen live", {"chat": peer_id, "items": [{"id": i, "kind": type(m).__name__ if m else "deleted", "action": type(m.action).__name__ if m and getattr(m, "action", None) else None, "topic": topic_id_from_reply(getattr(m, "reply_to", None)) if m else None, "has_text": bool(m and message_text(m)), "keyword": matching_keyword(message_text(m) or "") if m and message_text(m) else None, "out": bool(m and m.out)} for i, m in zip(missed, got)]})
                 except Exception as error:
                     _dbg("C", "main.py:_dbg_poll", "head check failed", {"chat": peer_id, "error": type(error).__name__})
 
