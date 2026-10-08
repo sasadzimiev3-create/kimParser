@@ -8,10 +8,20 @@ BAD_PASSWORD = "Неверный пароль"
 ASK_START = "Нажмите /start"
 
 
+def command_name(text):
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    first = raw.split(maxsplit=1)[0]
+    return first.split("@", 1)[0].lower()
+
+
 def is_start(text):
-    first = (text or "").strip().split(maxsplit=1)[0] if (text or "").strip() else ""
-    command = first.split("@", 1)[0].lower()
-    return command == "/start"
+    return command_name(text) == "/start"
+
+
+def is_menu(text):
+    return command_name(text) == "/menu"
 
 
 def is_listener_alert(sender_id, listener_id, forwarded, text):
@@ -28,6 +38,10 @@ def handle_private(text, status, password):
         if status == "connected":
             return "connected", CONNECTED
         return "awaiting", ASK_PASSWORD
+    if is_menu(raw) and status != "connected":
+        if status == "awaiting":
+            return "awaiting", ASK_PASSWORD
+        return None, ASK_START
     if status == "connected":
         return "connected", None
     if status == "awaiting" and raw == password:

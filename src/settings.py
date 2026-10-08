@@ -32,4 +32,5 @@ def require_settings():
         "session_path": os.environ.get("SESSION_PATH", "kimparser.session"),
         "bot_session_path": os.environ.get("BOT_SESSION_PATH", "bot.session"),
         "subscribers_path": os.environ.get("SUBSCRIBERS_PATH", "subscribers.json"),
+        "stats_path": os.environ.get("STATS_PATH", "keyword_stats.json"),
     }

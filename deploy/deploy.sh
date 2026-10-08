@@ -18,6 +18,8 @@ rsync -az --delete --timeout=60 \
   --exclude 'login_code' \
   --exclude 'login_password' \
   --exclude 'subscribers.json' \
+  --exclude 'keyword_stats.json' \
+  --exclude 'keyword_stats.json.tmp' \
   --exclude '__pycache__/' \
   --exclude '.venv/' \
   --exclude 'venv/' \

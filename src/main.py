@@ -16,7 +16,9 @@ from telethon.tl.types import MessageMediaWebPage
 from src.bot import register_bot
 from src.gate import SubscriberList
 from src.match import in_topic, matching_keyword
+from src.menu import install_menu_button
 from src.settings import require_settings
+from src.stats import KeywordStats
 from src.targets import TOPICS
 
 log = logging.getLogger("kimparser")
@@ -166,7 +168,7 @@ async def deliver(client, bot, event):
     return "copy"
 
 
-def build_handler(client, bot, allowed):
+def build_handler(client, bot, allowed, stats):
     async def on_message(event):
         topics = allowed.get(event.chat_id)
         if not topics or not in_topic(event.message.id, event.message.reply_to, topics):
@@ -178,6 +180,10 @@ def build_handler(client, bot, allowed):
         if keyword is None:
             return
         kind = await deliver(client, bot, event)
+        try:
+            stats.record(keyword)
+        except Exception:
+            log.exception("Статистика не записалась")
         log.info(
             "Совпадение chat=%s msg=%s keyword=%s via=%s",
             event.chat_id,
@@ -212,11 +218,19 @@ async def run():
     await bot_client.start(bot_token=settings["bot_token"])
     me = await client.get_me()
     subscribers = SubscriberList(settings["subscribers_path"])
-    register_bot(bot_client, subscribers, settings["bot_password"], me.id)
+    stats = KeywordStats(settings["stats_path"])
+    register_bot(bot_client, subscribers, settings["bot_password"], me.id, stats)
+    try:
+        install_menu_button(settings["bot_token"])
+        log.info("Кнопка меню включена")
+    except RuntimeError as error:
+        log.error("Кнопка меню не включилась: %s", error)
+    except Exception:
+        log.error("Кнопка меню не включилась")
     bot = await client.get_entity(username)
     allowed, pending = await watch_map(client)
     client.add_event_handler(
-        build_handler(client, bot, allowed),
+        build_handler(client, bot, allowed, stats),
         events.NewMessage(incoming=True),
     )
     if pending:
