@@ -12,8 +12,8 @@ from src.bot import register_bot
 from src.db import Database
 from src.gate import SubscriberList
 from src.links import private_message_link
-from src.match import recipients
-from src.menu import install_menu_button
+from src.match import matched_chat, recipients
+from src.menu import chat_label, install_menu_button
 from src.settings import require_settings
 
 log = logging.getLogger("kimparser")
@@ -89,7 +89,21 @@ def build_handler(client, bot, db):
         found = recipients(text, rows, event.message.id, event.message.reply_to)
         if not found:
             return
-        db.plan_delivery(event.chat_id, event.message.id, found)
+        planned = []
+        for user_id, keyword in found:
+            chat = matched_chat(rows, user_id, event.message.id, event.message.reply_to)
+            name = ""
+            link = ""
+            if chat:
+                name = chat_label(
+                    chat.get("title"),
+                    chat.get("topic_title"),
+                    chat.get("topic_id"),
+                    chat.get("status"),
+                )
+                link = chat.get("link") or ""
+            planned.append((user_id, keyword, name, link))
+        db.plan_delivery(event.chat_id, event.message.id, planned)
         try:
             kind = await deliver(client, bot, event)
         except Exception:

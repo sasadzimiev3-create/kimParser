@@ -6,9 +6,12 @@ from src.menu import (
     HOME_ROWS,
     WORD_ROWS,
     chat_label,
+    chat_menu_line,
     chats_text,
     choice_message,
+    hit_note,
     menu_text,
+    message_with_note,
     words_text,
 )
 
@@ -25,6 +28,7 @@ class MenuTextTests(unittest.TestCase):
             "\n".join(
                 [
                     "<b>⚙️ Меню:</b>",
+                    "",
                     "💬Чатов: 3",
                     "🔑 слов: 11",
                     "",
@@ -63,7 +67,14 @@ class MenuTextTests(unittest.TestCase):
 
     def test_chat_screen(self):
         label = chat_label("@jetlagchat", None, 44320, "pending")
-        text = chats_text([label, "Work"])
+        line = chat_menu_line(
+            "@jetlagchat",
+            None,
+            44320,
+            "pending",
+            "https://t.me/jetlagchat/44320",
+        )
+        text = chats_text([line, "Work"])
         self.assertEqual(
             text,
             "\n".join(
@@ -71,13 +82,28 @@ class MenuTextTests(unittest.TestCase):
                     "<b>⚙️ Меню:</b> → чаты",
                     "",
                     "Ваши чаты:",
-                    "1. @jetlagchat — тема 44320 (подключаю)",
+                    "1. @jetlagchat — тема 44320 (подключаю) — https://t.me/jetlagchat/44320",
                     "2. Work",
                 ]
             ),
         )
+        self.assertEqual(label + " — https://t.me/jetlagchat/44320", line)
+        self.assertEqual(chat_menu_line("Work", None, None, "active", ""), "Work")
         self.assertIn("Пока пусто", chats_text([]))
         self.assertIn("Ваши ключ слова:", words_text(["оператор"]))
+        self.assertIn("&lt;b&gt;", chats_text(["<b> — https://t.me/chat"]))
+
+    def test_hit_note_sits_under_the_message(self):
+        note = hit_note("оператор", "@jetlagchat — тема 44320", "https://t.me/jetlagchat/44320")
+        self.assertEqual(
+            note,
+            "[ Ключ слово: оператор\nЧат: @jetlagchat — тема 44320 https://t.me/jetlagchat/44320]",
+        )
+        self.assertEqual(
+            message_with_note("нужен оператор", note),
+            "нужен оператор\n" + note,
+        )
+        self.assertEqual(hit_note("", "", ""), "[ Ключ слово: —\nЧат: —]")
 
     def test_choice(self):
         self.assertEqual(choice_message("2", 3, "чата"), (2, None))

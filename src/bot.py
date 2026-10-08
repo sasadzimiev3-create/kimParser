@@ -15,10 +15,12 @@ from src.menu import (
     DELETE_WORD_INTRO,
     HOME_ROWS,
     WORD_ROWS,
-    chat_label,
+    chat_menu_line,
     chats_text,
     choice_message,
+    hit_note,
     menu_text,
+    message_with_note,
     section_text,
     words_text,
 )
@@ -79,11 +81,12 @@ async def present(event, text, rows, prefer_edit):
 async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_id):
     text = event.raw_text or ""
     connected = set(subscribers.ids())
-    for user_id, keyword in targets:
+    for user_id, keyword, chat_name, chat_link in targets:
         if user_id == skip_id or user_id not in connected:
             db.finish_delivery(peer_id, msg_id, user_id)
             continue
-        delivered = await _send_one(event, user_id, text, subscribers)
+        note = hit_note(keyword, chat_name, chat_link)
+        delivered = await _send_one(event, user_id, text, subscribers, note)
         if delivered:
             db.finish_delivery(peer_id, msg_id, user_id)
             try:
@@ -96,10 +99,9 @@ async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_i
             db.release_delivery(peer_id, msg_id, user_id)
 
 
-async def _send_one(event, user_id, text, subscribers):
+async def _send_one(event, user_id, text, subscribers, note):
     try:
         await event.forward_to(user_id)
-        return True
     except Exception as error:
         name = type(error).__name__
         if any(part in name for part in ("Forbidden", "Blocked", "Deactivated")):
@@ -107,14 +109,29 @@ async def _send_one(event, user_id, text, subscribers):
             log.info("Отписал %s: %s", user_id, name)
             return None
         log.exception("Пересылка подписчику %s не прошла", user_id)
-    if not text:
+    else:
+        await _send_note(event.client, user_id, note)
+        return True
+    if not (text or "").strip():
+        return False
+    body = message_with_note(text, note)
+    if not body:
         return False
     try:
-        await event.client.send_message(user_id, text)
+        await event.client.send_message(user_id, body, link_preview=False)
     except Exception:
         log.exception("Текст подписчику %s не ушёл", user_id)
         return False
     return True
+
+
+async def _send_note(client, user_id, note):
+    if not note:
+        return
+    try:
+        await client.send_message(user_id, note, link_preview=False)
+    except Exception:
+        log.exception("Подпись к совпадению не ушла %s", user_id)
 
 
 def register_bot(bot_client, subscribers, password, listener_id, db, listener):
@@ -304,4 +321,10 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
 
 
 def _label(row):
-    return chat_label(row["title"], row["topic_title"], row["topic_id"], row["status"])
+    return chat_menu_line(
+        row["title"],
+        row["topic_title"],
+        row["topic_id"],
+        row["status"],
+        row["link"],
+    )

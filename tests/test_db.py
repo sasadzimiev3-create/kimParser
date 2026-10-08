@@ -70,14 +70,25 @@ class DatabaseTests(unittest.TestCase):
             [("оператор", 2), ("съёмка", 1)],
         )
         self.assertEqual(self.db.top_keywords(1, now=WEEK_SECONDS + WEEK_SECONDS + 1), [])
-        self.db.plan_delivery(-1001, 9, [(1, "оператор"), (2, "смена")], now=WEEK_SECONDS)
+        self.db.plan_delivery(
+            -1001,
+            9,
+            [(1, "оператор", "Jetlag", "https://t.me/jetlagchat/44320"), (2, "смена")],
+            now=WEEK_SECONDS,
+        )
         self.assertEqual(
             sorted(self.db.claim_delivery(-1001, 9)),
-            [(1, "оператор"), (2, "смена")],
+            [
+                (1, "оператор", "Jetlag", "https://t.me/jetlagchat/44320"),
+                (2, "смена", "", ""),
+            ],
         )
         self.assertEqual(self.db.claim_delivery(-1001, 9), [])
         self.db.release_delivery(-1001, 9, 1)
-        self.assertEqual(self.db.claim_delivery(-1001, 9), [(1, "оператор")])
+        self.assertEqual(
+            self.db.claim_delivery(-1001, 9),
+            [(1, "оператор", "Jetlag", "https://t.me/jetlagchat/44320")],
+        )
 
     def test_legacy_stats_import_once(self):
         self.db.prepare_user(1, now=1)
@@ -108,3 +119,29 @@ class DatabaseTests(unittest.TestCase):
         self.db.clear_wizard(4)
         self.assertEqual(self.db.wizard(4), (None, []))
         self.assertTrue(self.db.same_link(4, "https://t.me/JETLAGCHAT/44320"))
+
+    def test_old_deliveries_gain_chat_columns(self):
+        self.db.conn.execute("DROP TABLE deliveries")
+        self.db.conn.execute(
+            """CREATE TABLE deliveries (
+                peer_id INTEGER NOT NULL,
+                msg_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                keyword TEXT NOT NULL,
+                sent INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (peer_id, msg_id, user_id)
+            )"""
+        )
+        self.db._add_column("deliveries", "chat_name", "TEXT NOT NULL DEFAULT ''")
+        self.db._add_column("deliveries", "chat_link", "TEXT NOT NULL DEFAULT ''")
+        self.db.plan_delivery(
+            5,
+            6,
+            [(7, "смена", "Work", "https://t.me/WorkProKino/196")],
+            now=1,
+        )
+        self.assertEqual(
+            self.db.claim_delivery(5, 6),
+            [(7, "смена", "Work", "https://t.me/WorkProKino/196")],
+        )

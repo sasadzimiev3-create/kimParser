@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from src.match import in_topic, matching_keyword, recipients, topic_id_from_reply
+from src.match import in_topic, matched_chat, matching_keyword, recipients, topic_id_from_reply
 
 
 def reply(**kwargs):
@@ -53,6 +53,18 @@ class MatchTests(unittest.TestCase):
         topic = reply(forum_topic=True, reply_to_top_id=10)
         found = recipients("нужен видеооператор, смена завтра", rows, 900, topic)
         self.assertEqual(found, [(1, "видеооператор"), (2, "смена")])
+        rows[0]["title"] = "Jetlag"
+        rows[0]["link"] = "https://t.me/jetlagchat/10"
+        rows[1]["link"] = "https://t.me/jetlagchat/10"
+        rows[2]["title"] = "Весь чат"
+        rows[2]["link"] = "https://t.me/whole"
+        self.assertEqual(matched_chat(rows, 1, 900, topic)["link"], "https://t.me/jetlagchat/10")
+        self.assertEqual(matched_chat(rows, 3, 900, topic), None)
+        both = [
+            {"user_id": 1, "topic_id": None, "title": "Весь", "link": "https://t.me/whole"},
+            {"user_id": 1, "topic_id": 10, "title": "Тема", "link": "https://t.me/jetlagchat/10"},
+        ]
+        self.assertEqual(matched_chat(both, 1, 900, topic)["title"], "Тема")
 
     def test_topic(self):
         allowed = {44320, 44329}

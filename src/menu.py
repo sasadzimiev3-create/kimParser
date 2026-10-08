@@ -37,6 +37,7 @@ MEDALS = ("🥇", "🥈", "🥉")
 def menu_text(chat_count, word_count, top):
     lines = [
         "<b>⚙️ Меню:</b>",
+        "",
         "💬Чатов: {}".format(chat_count),
         "🔑 слов: {}".format(word_count),
         "",
@@ -65,6 +66,33 @@ def chat_label(title, topic_title, topic_id, status):
     elif status == "failed":
         name = "{} (не удалось войти)".format(name)
     return name
+
+
+def chat_menu_line(title, topic_title, topic_id, status, link):
+    label = chat_label(title, topic_title, topic_id, status)
+    url = (link or "").strip()
+    if not url or url in label:
+        return label
+    return "{} — {}".format(label, url)
+
+
+def hit_note(keyword, chat_name, chat_link):
+    word = (keyword or "").strip() or "—"
+    name = (chat_name or "").strip()
+    url = (chat_link or "").strip()
+    if name and url:
+        chat = "{} {}".format(name, url)
+    else:
+        chat = name or url or "—"
+    return "[ Ключ слово: {}\nЧат: {}]".format(word, chat)
+
+
+def message_with_note(text, note):
+    body = (text or "").rstrip()
+    extra = (note or "").strip()
+    if body and extra:
+        return "{}\n{}".format(body, extra)
+    return body or extra
 
 
 def section_text(screen, heading, labels, intro=None):

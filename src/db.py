@@ -308,7 +308,9 @@ class Database:
     def matching_rows(self, peer_id):
         def run():
             rows = self.conn.execute(
-                """SELECT c.user_id AS user_id, c.topic_id AS topic_id, k.keyword AS keyword
+                """SELECT c.user_id AS user_id, c.topic_id AS topic_id,
+                          c.title AS title, c.topic_title AS topic_title,
+                          c.link AS link, c.status AS status, k.keyword AS keyword
                    FROM chats c
                    JOIN keywords k ON k.user_id = c.user_id
                    WHERE c.peer_id=? AND c.status='active'""",
@@ -323,23 +325,25 @@ class Database:
 
         def run():
             self._cleanup(moment)
-            for user_id, keyword in targets:
+            for target in targets:
+                user_id, keyword, chat_name, chat_link = _target_fields(target)
                 row = self.conn.execute(
                     """SELECT sent FROM deliveries
                        WHERE peer_id=? AND msg_id=? AND user_id=?""",
-                    (peer_id, msg_id, int(user_id)),
+                    (peer_id, msg_id, user_id),
                 ).fetchone()
                 if row is None:
                     self.conn.execute(
-                        """INSERT INTO deliveries(peer_id, msg_id, user_id, keyword, sent, created_at)
-                           VALUES(?, ?, ?, ?, 0, ?)""",
-                        (peer_id, msg_id, int(user_id), keyword, moment),
+                        """INSERT INTO deliveries(
+                               peer_id, msg_id, user_id, keyword, chat_name, chat_link, sent, created_at
+                           ) VALUES(?, ?, ?, ?, ?, ?, 0, ?)""",
+                        (peer_id, msg_id, user_id, keyword, chat_name, chat_link, moment),
                     )
                 elif row["sent"] == 0:
                     self.conn.execute(
-                        """UPDATE deliveries SET keyword=?
+                        """UPDATE deliveries SET keyword=?, chat_name=?, chat_link=?
                            WHERE peer_id=? AND msg_id=? AND user_id=?""",
-                        (keyword, peer_id, msg_id, int(user_id)),
+                        (keyword, chat_name, chat_link, peer_id, msg_id, user_id),
                     )
 
         self._transaction(run)
@@ -347,7 +351,7 @@ class Database:
     def claim_delivery(self, peer_id, msg_id):
         def run():
             rows = self.conn.execute(
-                """SELECT user_id, keyword FROM deliveries
+                """SELECT user_id, keyword, chat_name, chat_link FROM deliveries
                    WHERE peer_id=? AND msg_id=? AND sent=0""",
                 (peer_id, msg_id),
             ).fetchall()
@@ -356,7 +360,10 @@ class Database:
                    WHERE peer_id=? AND msg_id=? AND sent=0""",
                 (peer_id, msg_id),
             )
-            return [(row["user_id"], row["keyword"]) for row in rows]
+            return [
+                (row["user_id"], row["keyword"], row["chat_name"] or "", row["chat_link"] or "")
+                for row in rows
+            ]
 
         return self._transaction(run)
 
@@ -541,6 +548,8 @@ class Database:
                 msg_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 keyword TEXT NOT NULL,
+                chat_name TEXT NOT NULL DEFAULT '',
+                chat_link TEXT NOT NULL DEFAULT '',
                 sent INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (peer_id, msg_id, user_id)
@@ -551,6 +560,18 @@ class Database:
             );
             """
         )
+        self._add_column("deliveries", "chat_name", "TEXT NOT NULL DEFAULT ''")
+        self._add_column("deliveries", "chat_link", "TEXT NOT NULL DEFAULT ''")
+
+    def _add_column(self, table, column, definition):
+        names = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info({})".format(table))
+        }
+        if column not in names:
+            self.conn.execute(
+                "ALTER TABLE {} ADD COLUMN {} {}".format(table, column, definition)
+            )
 
     def _chmod(self):
         try:
@@ -602,6 +623,12 @@ def _moment(now):
     if now is None:
         return int(time.time())
     return int(now)
+
+
+def _target_fields(target):
+    chat_name = target[2] if len(target) > 2 else ""
+    chat_link = target[3] if len(target) > 3 else ""
+    return int(target[0]), target[1], chat_name or "", chat_link or ""
 
 
 def _legacy_events(path):
