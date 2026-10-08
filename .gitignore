@@ -9,6 +9,10 @@ login_password
 subscribers.json
 keyword_stats.json
 keyword_stats.json.tmp
+kimparser.db
+kimparser.db-wal
+kimparser.db-shm
+kimparser.db-journal
 __pycache__/
 .venv/
 venv/

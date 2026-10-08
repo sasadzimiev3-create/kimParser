@@ -20,6 +20,10 @@ rsync -az --delete --timeout=60 \
   --exclude 'subscribers.json' \
   --exclude 'keyword_stats.json' \
   --exclude 'keyword_stats.json.tmp' \
+  --exclude 'kimparser.db' \
+  --exclude 'kimparser.db-wal' \
+  --exclude 'kimparser.db-shm' \
+  --exclude 'kimparser.db-journal' \
   --exclude '__pycache__/' \
   --exclude '.venv/' \
   --exclude 'venv/' \

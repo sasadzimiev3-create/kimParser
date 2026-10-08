@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from src.match import in_topic, matching_keyword, topic_id_from_reply
+from src.match import in_topic, matching_keyword, recipients, topic_id_from_reply
 
 
 def reply(**kwargs):
@@ -37,6 +37,22 @@ class MatchTests(unittest.TestCase):
     def test_no_match(self):
         self.assertIsNone(matching_keyword("ищем монтажёра"))
         self.assertIsNone(matching_keyword(""))
+
+    def test_custom_list_picks_the_longest_word(self):
+        words = ["оператор", "видеооператор"]
+        self.assertEqual(matching_keyword("нужен видеооператор", words), "видеооператор")
+        self.assertEqual(matching_keyword("нужен оператор", ["смена"]), None)
+
+    def test_recipients_stay_inside_their_topic_and_words(self):
+        rows = [
+            {"user_id": 1, "topic_id": 10, "keyword": "оператор"},
+            {"user_id": 1, "topic_id": 10, "keyword": "видеооператор"},
+            {"user_id": 2, "topic_id": None, "keyword": "смена"},
+            {"user_id": 3, "topic_id": 11, "keyword": "оператор"},
+        ]
+        topic = reply(forum_topic=True, reply_to_top_id=10)
+        found = recipients("нужен видеооператор, смена завтра", rows, 900, topic)
+        self.assertEqual(found, [(1, "видеооператор"), (2, "смена")])
 
     def test_topic(self):
         allowed = {44320, 44329}

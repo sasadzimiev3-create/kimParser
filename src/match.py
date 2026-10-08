@@ -9,14 +9,35 @@ def normalize(text):
     return re.sub(r"\s+", " ", without_punctuation).strip()
 
 
-def matching_keyword(text):
-    if not text:
+def matching_keyword(text, keywords=None):
+    pool = KEYWORDS if keywords is None else keywords
+    if not text or not pool:
         return None
     haystack = normalize(text)
-    for keyword in sorted(KEYWORDS, key=len, reverse=True):
-        if normalize(keyword) in haystack:
+    ranked = sorted(pool, key=lambda item: len(normalize(item)), reverse=True)
+    for keyword in ranked:
+        needle = normalize(keyword)
+        if needle and needle in haystack:
             return keyword
     return None
+
+
+def recipients(text, rows, message_id, reply):
+    """Кому отправить сообщение: свои слова и только свои темы."""
+    chosen = {}
+    for row in rows:
+        topic_id = row["topic_id"]
+        if topic_id is not None and not in_topic(message_id, reply, {topic_id}):
+            continue
+        words = chosen.setdefault(row["user_id"], [])
+        if row["keyword"] not in words:
+            words.append(row["keyword"])
+    found = []
+    for user_id, words in chosen.items():
+        keyword = matching_keyword(text, words)
+        if keyword:
+            found.append((user_id, keyword))
+    return found
 
 
 def topic_id_from_reply(reply):

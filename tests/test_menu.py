@@ -1,10 +1,16 @@
-import json
-import tempfile
 import unittest
 from pathlib import Path
 
-from src.menu import BUTTONS, menu_text
-from src.stats import WEEK_SECONDS, KeywordStats
+from src.menu import (
+    CHAT_ROWS,
+    HOME_ROWS,
+    WORD_ROWS,
+    chat_label,
+    chats_text,
+    choice_message,
+    menu_text,
+    words_text,
+)
 
 
 class MenuTextTests(unittest.TestCase):
@@ -43,62 +49,40 @@ class MenuTextTests(unittest.TestCase):
         text = menu_text(1, 1, [("<b>", 1)])
         self.assertIn("🥇 &lt;b&gt; - 1", text)
 
-    def test_buttons_are_a_pair(self):
-        self.assertEqual([label for label, _ in BUTTONS], ["Чаты", "Ключ слова"])
-
-
-class KeywordStatsTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self._tmp.name) / "keyword_stats.json"
-
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def test_week_window_and_reload(self):
-        stats = KeywordStats(self.path)
-        stats.record("старое", now=-1)
-        stats.record("оператор", now=WEEK_SECONDS)
-        stats.record("оператор", now=WEEK_SECONDS)
-        stats.record("съёмка", now=WEEK_SECONDS)
+    def test_buttons(self):
+        self.assertEqual([label for label, _ in HOME_ROWS[0]], ["Чаты", "Ключ слова"])
         self.assertEqual(
-            stats.top(now=WEEK_SECONDS),
-            [("оператор", 2), ("съёмка", 1)],
+            [label for label, _ in CHAT_ROWS[0]],
+            ["Добавить чат", "Удалить чат"],
         )
-        saved = json.loads(self.path.read_text())
+        self.assertEqual(CHAT_ROWS[1][0][0], "◀️ Назад")
         self.assertEqual(
-            [item[1] for item in saved],
-            ["оператор", "оператор", "съёмка"],
+            [label for label, _ in WORD_ROWS[0]],
+            ["Добавить слово", "Удалить слово"],
         )
-        again = KeywordStats(self.path)
-        self.assertEqual(again.top(now=WEEK_SECONDS), [("оператор", 2), ("съёмка", 1)])
-        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
-    def test_edge_of_the_week_drops_off(self):
-        stats = KeywordStats(self.path)
-        stats.record("край", now=1000)
-        moment = 1000 + WEEK_SECONDS
-        self.assertEqual(stats.top(now=moment), [("край", 1)])
-        self.assertEqual(stats.top(now=moment + 1), [])
+    def test_chat_screen(self):
+        label = chat_label("@jetlagchat", None, 44320, "pending")
+        text = chats_text([label, "Work"])
+        self.assertEqual(
+            text,
+            "\n".join(
+                [
+                    "<b>⚙️ Меню:</b> → чаты",
+                    "",
+                    "Ваши чаты:",
+                    "1. @jetlagchat — тема 44320 (подключаю)",
+                    "2. Work",
+                ]
+            ),
+        )
+        self.assertIn("Пока пусто", chats_text([]))
+        self.assertIn("Ваши ключ слова:", words_text(["оператор"]))
 
-    def test_only_top_three_ties_break_by_name(self):
-        stats = KeywordStats(self.path)
-        for _ in range(5):
-            stats.record("а", now=10)
-        for _ in range(2):
-            stats.record("б", now=10)
-        for _ in range(2):
-            stats.record("в", now=10)
-        stats.record("г", now=10)
-        self.assertEqual(stats.top(now=10), [("а", 5), ("б", 2), ("в", 2)])
-
-    def test_corrupt_file_does_not_block_new_stats(self):
-        self.path.write_text("nope")
-        stats = KeywordStats(self.path)
-        self.assertEqual(stats.top(now=10), [])
-        stats.record("смена", now=10)
-        self.assertEqual(stats.top(now=10), [("смена", 1)])
-        self.assertEqual(json.loads(self.path.read_text()), [[10, "смена"]])
+    def test_choice(self):
+        self.assertEqual(choice_message("2", 3, "чата"), (2, None))
+        self.assertEqual(choice_message("слово", 3, "чата")[1], "Нужен номер из списка.")
+        self.assertEqual(choice_message("9", 3, "слова")[1], "Нет слова с таким номером.")
 
 
 class DeployKeepFilesTests(unittest.TestCase):
@@ -107,3 +91,6 @@ class DeployKeepFilesTests(unittest.TestCase):
         self.assertIn("--exclude 'subscribers.json'", script)
         self.assertIn("--exclude 'keyword_stats.json'", script)
         self.assertIn("--exclude 'keyword_stats.json.tmp'", script)
+        self.assertIn("--exclude 'kimparser.db'", script)
+        self.assertIn("--exclude 'kimparser.db-wal'", script)
+        self.assertIn("--exclude 'kimparser.db-shm'", script)

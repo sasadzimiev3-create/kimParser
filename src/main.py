@@ -4,22 +4,17 @@ import logging
 import urllib.error
 import urllib.request
 
-from telethon import TelegramClient, events, utils
-from telethon.errors import (
-    FloodWaitError,
-    InviteRequestSentError,
-    UserAlreadyParticipantError,
-)
-from telethon.tl.functions.channels import JoinChannelRequest
+from telethon import TelegramClient, events
 from telethon.tl.types import MessageMediaWebPage
 
+from src.access import refresh_access
 from src.bot import register_bot
+from src.db import Database
 from src.gate import SubscriberList
-from src.match import in_topic, matching_keyword
+from src.links import private_message_link
+from src.match import recipients
 from src.menu import install_menu_button
 from src.settings import require_settings
-from src.stats import KeywordStats
-from src.targets import TOPICS
 
 log = logging.getLogger("kimparser")
 
@@ -45,122 +40,31 @@ def message_text(message):
     return text or None
 
 
-async def ensure_joined(client, entity, username, quiet, may_join):
-    if getattr(entity, "left", True) is False:
-        if not quiet:
-            log.info("Уже состоит в @%s", username)
-        return "ok"
-    if not may_join:
-        return "requested"
-    try:
-        await client(JoinChannelRequest(entity))
-    except UserAlreadyParticipantError:
-        if not quiet:
-            log.info("Уже состоит в @%s", username)
-        return "ok"
-    except InviteRequestSentError:
-        if not quiet:
-            log.info("Заявка в @%s отправлена, ждём одобрения администратора", username)
-        return "requested"
-    except FloodWaitError:
-        if not quiet:
-            log.info("Вход в @%s отложен, Telegram просит подождать", username)
-        return "pending"
-    except Exception:
-        log.exception("Не удалось войти в @%s", username)
-        return "fail"
-    if not quiet:
-        log.info("Вступил в @%s", username)
-    return "ok"
-
-
-async def attach_chat(client, allowed, username, topic_ids, quiet, may_join=True):
-    try:
-        entity = await client.get_entity(username)
-    except Exception:
-        if not quiet:
-            log.exception("Чат @%s не найден", username)
-        return "fail"
-    status = await ensure_joined(client, entity, username, quiet, may_join)
-    if status != "ok":
-        return status
-    entity = await client.get_entity(username)
-    peer_id = utils.get_peer_id(entity)
-    allowed[peer_id] = set(topic_ids)
-    if quiet:
-        log.info("Заявку в @%s приняли, темы подключены", username)
-        return "ok"
-    forum = bool(getattr(entity, "forum", False))
-    log.info("@%s id=%s forum=%s topics=%s", username, peer_id, forum, topic_ids)
-    for topic_id in topic_ids:
-        try:
-            found = await client.get_messages(entity, limit=1, reply_to=topic_id)
-        except Exception:
-            log.exception("Тема %s в @%s недоступна", topic_id, username)
-            continue
-        if found:
-            log.info(
-                "Тема %s в @%s читается, последнее сообщение %s",
-                topic_id,
-                username,
-                found[0].id,
-            )
-        else:
-            log.warning("Тема %s в @%s пустая или закрыта", topic_id, username)
-    return "ok"
-
-
-async def watch_map(client):
-    allowed = {}
-    pending = []
-    for username, topic_ids in TOPICS.items():
-        status = await attach_chat(client, allowed, username, topic_ids, quiet=False)
-        if status in ("pending", "requested"):
-            pending.append((username, topic_ids, status == "requested"))
-    if not allowed and not pending:
-        raise SystemExit("Нет ни одного доступного чата")
-    return allowed, pending
-
-
-async def retry_pending(client, allowed, pending):
-    while pending:
-        await asyncio.sleep(7200)
-        still_pending = []
-        for username, topic_ids, requested in pending:
-            status = await attach_chat(
-                client,
-                allowed,
-                username,
-                topic_ids,
-                quiet=True,
-                may_join=not requested,
-            )
-            if status in ("pending", "requested"):
-                still_pending.append((username, topic_ids, requested or status == "requested"))
-            elif status != "ok":
-                log.error("Чат @%s пропущен", username)
-        pending[:] = still_pending
-
-
 async def deliver(client, bot, event):
     message = event.message
     try:
         await client.forward_messages(bot, message)
         return "forward"
-    except FloodWaitError as error:
-        log.warning("Flood wait %s с", error.seconds)
-        await asyncio.sleep(error.seconds)
-        try:
-            await client.forward_messages(bot, message)
-            return "forward"
-        except Exception:
-            log.exception("Оригинал не переслался после ожидания")
-    except Exception:
-        log.exception("Оригинал не переслался, отправляю текст")
+    except Exception as error:
+        name = type(error).__name__
+        if name == "FloodWaitError":
+            seconds = getattr(error, "seconds", 1)
+            log.warning("Flood wait %s с", seconds)
+            await asyncio.sleep(seconds)
+            try:
+                await client.forward_messages(bot, message)
+                return "forward"
+            except Exception:
+                log.exception("Оригинал не переслался после ожидания")
+        else:
+            log.exception("Оригинал не переслался, отправляю текст")
 
     chat = await event.get_chat()
     username = getattr(chat, "username", None)
-    link = "https://t.me/{}/{}".format(username, message.id) if username else ""
+    if username:
+        link = "https://t.me/{}/{}".format(username, message.id)
+    else:
+        link = private_message_link(event.chat_id, message.id)
     body = message.raw_text or ""
     if link:
         body = "{}\n\n{}".format(body, link)
@@ -168,31 +72,48 @@ async def deliver(client, bot, event):
     return "copy"
 
 
-def build_handler(client, bot, allowed, stats):
+def build_handler(client, bot, db):
     async def on_message(event):
-        topics = allowed.get(event.chat_id)
-        if not topics or not in_topic(event.message.id, event.message.reply_to, topics):
+        try:
+            await _handle(event)
+        except Exception:
+            log.exception("Сообщение не обработалось")
+
+    async def _handle(event):
+        rows = db.matching_rows(event.chat_id)
+        if not rows:
             return
         text = message_text(event.message)
         if text is None:
             return
-        keyword = matching_keyword(text)
-        if keyword is None:
+        found = recipients(text, rows, event.message.id, event.message.reply_to)
+        if not found:
             return
-        kind = await deliver(client, bot, event)
+        db.plan_delivery(event.chat_id, event.message.id, found)
         try:
-            stats.record(keyword)
+            kind = await deliver(client, bot, event)
         except Exception:
-            log.exception("Статистика не записалась")
+            log.exception("Доставка боту не удалась")
+            return
         log.info(
-            "Совпадение chat=%s msg=%s keyword=%s via=%s",
+            "Совпадение chat=%s msg=%s users=%s keywords=%s via=%s",
             event.chat_id,
             event.message.id,
-            keyword,
+            len(found),
+            ",".join(sorted({keyword for _, keyword in found})),
             kind,
         )
 
     return on_message
+
+
+async def retry_access(client, db):
+    while True:
+        await asyncio.sleep(7200)
+        try:
+            await refresh_access(client, db, pending_only=True)
+        except Exception:
+            log.exception("Повтор входа в чаты не удался")
 
 
 async def run():
@@ -218,8 +139,11 @@ async def run():
     await bot_client.start(bot_token=settings["bot_token"])
     me = await client.get_me()
     subscribers = SubscriberList(settings["subscribers_path"])
-    stats = KeywordStats(settings["stats_path"])
-    register_bot(bot_client, subscribers, settings["bot_password"], me.id, stats)
+    db = Database(settings["db_path"])
+    for user_id in subscribers.ids():
+        db.prepare_user(user_id)
+    db.import_legacy_file(settings["stats_path"])
+    register_bot(bot_client, subscribers, settings["bot_password"], me.id, db, client)
     try:
         install_menu_button(settings["bot_token"])
         log.info("Кнопка меню включена")
@@ -228,16 +152,20 @@ async def run():
     except Exception:
         log.error("Кнопка меню не включилась")
     bot = await client.get_entity(username)
-    allowed, pending = await watch_map(client)
+    try:
+        await refresh_access(client, db)
+    except Exception:
+        log.exception("Чаты не обновились")
     client.add_event_handler(
-        build_handler(client, bot, allowed, stats),
+        build_handler(client, bot, db),
         events.NewMessage(incoming=True),
     )
-    if pending:
-        asyncio.create_task(retry_pending(client, allowed, pending))
+    asyncio.create_task(retry_access(client, db))
+    if not db.active_peer_count():
+        log.warning("Нет подключённых чатов, меню бота работает")
     log.info(
         "Слушаю %s чатов, бот @%s, подписчиков %s",
-        len(allowed),
+        db.active_peer_count(),
         username,
         len(subscribers.ids()),
     )
