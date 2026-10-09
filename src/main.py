@@ -12,7 +12,8 @@ from src.bot import register_bot
 from src.db import Database
 from src.gate import SubscriberList, delivery_tag_text
 from src.links import private_message_link
-from src.match import matched_chat, recipients
+from src.match import matched_chat, recipients, topic_id_from_reply
+from src.trace import trace
 from src.menu import chat_label, install_menu_button
 from src.settings import require_settings
 
@@ -44,6 +45,14 @@ async def mark_forward(client, bot, sent, peer_id, msg_id):
     message = sent[0] if isinstance(sent, (list, tuple)) else sent
     reply_to = getattr(message, "id", None)
     await client.send_message(bot, delivery_tag_text(peer_id, msg_id), reply_to=reply_to)
+    # #region agent log
+    trace(
+        "T",
+        "main.py:mark_forward",
+        "Метка отправлена",
+        {"peer": peer_id, "msg": msg_id, "reply": reply_to},
+    )
+    # #endregion
 
 
 async def deliver(client, bot, event):
@@ -91,11 +100,35 @@ def build_handler(client, bot, db):
         rows = db.matching_rows(event.chat_id)
         if not rows:
             return
+        reply = event.message.reply_to
         text = message_text(event.message)
+        topic = topic_id_from_reply(reply)
+        # #region agent log
+        trace(
+            "L",
+            "main.py:_handle",
+            "Входящее",
+            {
+                "chat": event.chat_id,
+                "msg": event.message.id,
+                "topic": topic if topic is not None else "-",
+                "text": bool(text),
+                "media": type(event.message.media).__name__ if event.message.media else "",
+            },
+        )
+        # #endregion
         if text is None:
             return
-        found = recipients(text, rows, event.message.id, event.message.reply_to)
+        found = recipients(text, rows, event.message.id, reply)
         if not found:
+            # #region agent log
+            trace(
+                "M",
+                "main.py:_handle",
+                "Мимо",
+                {"chat": event.chat_id, "msg": event.message.id, "topic": topic if topic is not None else "-"},
+            )
+            # #endregion
             return
         planned = []
         for user_id, keyword in found:

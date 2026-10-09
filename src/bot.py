@@ -13,6 +13,7 @@ from src.gate import (
     is_start,
 )
 from src.links import parse_link, peer_id_from_channel, trailing_telegram_link
+from src.trace import trace
 from src.menu import (
     ADD_CHAT_TEXT,
     ADD_WORD_TEXT,
@@ -91,11 +92,23 @@ async def relay_targets(event, targets, subscribers, skip_id, db, peer_id, msg_i
     connected = set(subscribers.ids())
     for user_id, keyword, chat_name, chat_link in targets:
         if user_id == skip_id or user_id not in connected:
+            if user_id != skip_id:
+                # #region agent log
+                trace("D", "bot.py:relay_targets", "Пропуск", {"user": user_id, "peer": peer_id, "msg": msg_id})
+                # #endregion
             db.finish_delivery(peer_id, msg_id, user_id)
             continue
         note = hit_note(keyword, chat_name, chat_link)
         delivered = await _send_one(event, user_id, text, subscribers, note, origin)
         if delivered:
+            # #region agent log
+            trace(
+                "D",
+                "bot.py:relay_targets",
+                "Ушло подписчику",
+                {"user": user_id, "peer": peer_id, "msg": msg_id, "word": keyword},
+            )
+            # #endregion
             db.finish_delivery(peer_id, msg_id, user_id)
             try:
                 db.record_hit(user_id, keyword)
@@ -221,10 +234,21 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
     async def _deliver_tagged(event, tagged):
         peer_id, msg_id = tagged
         targets = db.claim_delivery(peer_id, msg_id)
+        # #region agent log
+        trace(
+            "C",
+            "bot.py:_deliver_tagged",
+            "Метка принята",
+            {"peer": peer_id, "msg": msg_id, "plan": len(targets)},
+        )
+        # #endregion
         if not targets:
             return
         origin = await event.get_reply_message()
         if origin is None:
+            # #region agent log
+            trace("C", "bot.py:_deliver_tagged", "Метка без оригинала", {"peer": peer_id, "msg": msg_id})
+            # #endregion
             for user_id, _keyword, _chat_name, _chat_link in targets:
                 db.release_delivery(peer_id, msg_id, user_id)
             return
