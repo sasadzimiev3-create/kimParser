@@ -59,6 +59,11 @@ class GateTests(unittest.TestCase):
         )
         private = "https://t.me/c/2053584336/19710"
         self.assertEqual(delivery_target(private, lambda name: None), (-1002053584336, 19710))
+        forum = "https://t.me/workprokino/131/19711"
+        self.assertEqual(
+            delivery_target(forum, lambda name: -1002053584336),
+            (-1002053584336, 19711),
+        )
         self.assertIsNone(delivery_target("нужен оператор", lambda name: -1))
         self.assertFalse(is_listener_alert(5, 5, False, "/start"))
         self.assertFalse(is_listener_alert(5, 5, False, "/menu"))

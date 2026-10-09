@@ -77,17 +77,19 @@ def chat_menu_line(title, topic_title, topic_id, status, link):
 
 
 def hit_note(keyword, chat_name, chat_link):
-    word = (keyword or "").strip() or "—"
-    name = (chat_name or "").strip() or "—"
+    word = (keyword or "").strip()
+    shown = "<i>{}</i>".format(escape(word)) if word else "—"
+    name = escape((chat_name or "").strip() or "—")
     url = (chat_link or "").strip()
-    note = "[ Ключ слово: {}\nЧат: {}]".format(word, name)
+    lines = ["Ключ: {}".format(shown), "Чат: {}".format(name)]
     if url:
-        return "{}\n{}".format(note, url)
-    return note
+        href = escape(url, quote=True)
+        lines.append('<a href="{}">{}</a>'.format(href, escape(url)))
+    return "\n".join(lines)
 
 
 def message_with_note(text, note):
-    body = (text or "").rstrip()
+    body = escape((text or "").rstrip())
     extra = (note or "").strip()
     if body and extra:
         return "{}\n{}".format(body, extra)

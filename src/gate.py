@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from src.links import parse_link, peer_id_from_channel
+from src.links import parse_link, peer_id_from_channel, posted_message_id
 
 
 CONNECTED = "Вы подключены!"
@@ -47,14 +47,15 @@ def delivery_target(text, peer_by_username=None):
     if tagged:
         return tagged
     parsed = parse_link(raw)
-    if parsed is None or not parsed.ref_id or parsed.link.lower() != raw.lower():
+    posted = posted_message_id(parsed)
+    if parsed is None or not posted or parsed.link.lower() != raw.lower():
         return None
     if parsed.internal_id is not None:
-        return peer_id_from_channel(parsed.internal_id), parsed.ref_id
+        return peer_id_from_channel(parsed.internal_id), posted
     if parsed.username and peer_by_username:
         peer = peer_by_username(parsed.username)
         if peer is not None:
-            return int(peer), parsed.ref_id
+            return int(peer), posted
     return None
 
 
@@ -65,8 +66,9 @@ def is_listener_alert(sender_id, listener_id, forwarded, text):
         return True
     if delivery_tag(text):
         return True
-    parsed = parse_link((text or "").strip())
-    if parsed and parsed.ref_id and parsed.link.lower() == (text or "").strip().lower():
+    raw = (text or "").strip()
+    parsed = parse_link(raw)
+    if parsed and posted_message_id(parsed) and parsed.link.lower() == raw.lower():
         return True
     return "\n\nhttps://t.me/" in (text or "")
 

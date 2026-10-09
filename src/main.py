@@ -55,13 +55,13 @@ async def mark_forward(client, bot, sent, marker, peer_id, msg_id):
     # #endregion
 
 
-def source_permalink(peer_id, message_id, rows):
+def source_permalink(peer_id, message_id, rows, topic_id=None):
     username = ""
     for row in rows:
         if row.get("username"):
             username = row["username"]
             break
-    return message_permalink(peer_id, message_id, username)
+    return message_permalink(peer_id, message_id, username, topic_id)
 
 
 async def deliver(client, bot, event, permalink):
@@ -149,7 +149,7 @@ def build_handler(client, bot, db):
                 )
                 link = chat.get("link") or ""
             planned.append((user_id, keyword, name, link))
-        permalink = source_permalink(event.chat_id, event.message.id, rows)
+        permalink = source_permalink(event.chat_id, event.message.id, rows, topic)
         if permalink:
             planned = [
                 (user_id, keyword, name, permalink)

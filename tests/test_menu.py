@@ -99,16 +99,18 @@ class MenuTextTests(unittest.TestCase):
         self.assertIn("&lt;b&gt;", chats_text(["<b>\nhttps://t.me/chat"]))
 
     def test_hit_note_sits_under_the_message(self):
-        note = hit_note("оператор", "@jetlagchat — тема 44320", "https://t.me/jetlagchat/50")
+        note = hit_note("оператор", "@jetlagchat — тема 44320", "https://t.me/jetlagchat/44320/50")
         self.assertEqual(
             note,
-            "[ Ключ слово: оператор\nЧат: @jetlagchat — тема 44320]\nhttps://t.me/jetlagchat/50",
+            "Ключ: <i>оператор</i>\n"
+            "Чат: @jetlagchat — тема 44320\n"
+            '<a href="https://t.me/jetlagchat/44320/50">https://t.me/jetlagchat/44320/50</a>',
         )
         self.assertEqual(
             message_with_note("нужен оператор", note),
             "нужен оператор\n" + note,
         )
-        self.assertEqual(hit_note("", "", ""), "[ Ключ слово: —\nЧат: —]")
+        self.assertEqual(hit_note("", "", ""), "Ключ: —\nЧат: —")
 
     def test_choice(self):
         self.assertEqual(choice_message("2", 3, "чата"), (2, None))

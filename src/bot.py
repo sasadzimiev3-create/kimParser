@@ -12,7 +12,7 @@ from src.gate import (
     is_menu,
     is_start,
 )
-from src.links import parse_link, peer_id_from_channel, trailing_telegram_link
+from src.links import parse_link, peer_id_from_channel, posted_message_id, trailing_telegram_link
 from src.trace import trace
 from src.menu import (
     ADD_CHAT_TEXT,
@@ -65,14 +65,15 @@ def delivery_source(event, db):
         return found
     link = trailing_telegram_link(event.raw_text or "")
     parsed = parse_link(link) if link else None
-    if parsed is None or not parsed.ref_id:
+    posted = posted_message_id(parsed)
+    if parsed is None or not posted:
         return None
     if parsed.internal_id:
-        return peer_id_from_channel(parsed.internal_id), parsed.ref_id
+        return peer_id_from_channel(parsed.internal_id), posted
     if parsed.username:
         peer = db.peer_by_username(parsed.username)
         if peer:
-            return peer, parsed.ref_id
+            return peer, posted
     return None
 
 
@@ -142,7 +143,7 @@ async def _send_one(event, user_id, text, subscribers, note, origin=None):
     if not body:
         return False
     try:
-        await event.client.send_message(user_id, body, link_preview=False)
+        await event.client.send_message(user_id, body, link_preview=False, parse_mode="html")
     except Exception:
         log.exception("Текст подписчику %s не ушёл", user_id)
         return False
@@ -153,7 +154,7 @@ async def _send_note(client, user_id, note):
     if not note:
         return
     try:
-        await client.send_message(user_id, note, link_preview=False)
+        await client.send_message(user_id, note, link_preview=False, parse_mode="html")
     except Exception:
         log.exception("Подпись к совпадению не ушла %s", user_id)
 

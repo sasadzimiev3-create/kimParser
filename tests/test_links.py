@@ -28,12 +28,19 @@ class LinkTests(unittest.TestCase):
 
     def test_message_permalink_opens_the_message(self):
         self.assertEqual(
-            message_permalink(-1002053584336, 19710, "WorkProKino"),
-            "https://t.me/workprokino/19710",
+            message_permalink(-1002053584336, 19711, "WorkProKino", 131),
+            "https://t.me/workprokino/131/19711",
         )
+        copied = parse_link("https://t.me/workprokino/131/19711")
+        self.assertEqual(copied.ref_id, 131)
+        self.assertEqual(copied.msg_id, 19711)
         self.assertEqual(
             message_permalink(-1002053584336, 19710, None),
             "https://t.me/c/2053584336/19710",
+        )
+        self.assertEqual(
+            message_permalink(-1002053584336, 19711, None, 131),
+            "https://t.me/c/2053584336/131/19711",
         )
         self.assertEqual(message_permalink(123, 5, ""), "")
 
