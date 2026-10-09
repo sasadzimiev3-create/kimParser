@@ -6,7 +6,7 @@ from src.access import subscribe_link, unsubscribe_chat
 from src.gate import (
     ASK_PASSWORD,
     ASK_START,
-    delivery_tag,
+    delivery_target,
     handle_private,
     is_listener_alert,
     is_menu,
@@ -214,10 +214,11 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
         await _gate(event)
 
     async def _deliver_alert(event):
-        tagged = delivery_tag(event.raw_text)
-        if tagged:
-            await _deliver_tagged(event, tagged)
-            return
+        if not event.message.fwd_from:
+            found = delivery_target(event.raw_text, db.peer_by_username)
+            if found:
+                await _deliver_tagged(event, found)
+                return
         source = delivery_source(event, db)
         if source is None:
             if event.message.fwd_from:

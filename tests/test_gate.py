@@ -9,8 +9,9 @@ from src.gate import (
     BAD_PASSWORD,
     CONNECTED,
     SubscriberList,
-    handle_private,
     delivery_tag,
+    delivery_target,
+    handle_private,
     is_listener_alert,
     is_menu,
 )
@@ -50,6 +51,15 @@ class GateTests(unittest.TestCase):
         self.assertTrue(is_listener_alert(5, 5, False, "kp:-1001391677315:243544"))
         self.assertEqual(delivery_tag("kp:-1001391677315:243544"), (-1001391677315, 243544))
         self.assertIsNone(delivery_tag("оператор"))
+        link = "https://t.me/workprokino/19710"
+        self.assertTrue(is_listener_alert(5, 5, False, link))
+        self.assertEqual(
+            delivery_target(link, lambda name: -1002053584336),
+            (-1002053584336, 19710),
+        )
+        private = "https://t.me/c/2053584336/19710"
+        self.assertEqual(delivery_target(private, lambda name: None), (-1002053584336, 19710))
+        self.assertIsNone(delivery_target("нужен оператор", lambda name: -1))
         self.assertFalse(is_listener_alert(5, 5, False, "/start"))
         self.assertFalse(is_listener_alert(5, 5, False, "/menu"))
         self.assertFalse(is_listener_alert(9, 5, True, "Оператор"))

@@ -41,6 +41,13 @@ def private_message_link(peer_id, message_id):
     return "https://t.me/c/{}/{}".format(text[4:], message_id)
 
 
+def message_permalink(peer_id, message_id, username=None):
+    name = (username or "").strip().lstrip("@").lower()
+    if name:
+        return "https://t.me/{}/{}".format(name, message_id)
+    return private_message_link(peer_id, message_id)
+
+
 def trailing_telegram_link(text):
     marker = "\n\nhttps://t.me/"
     if marker not in (text or ""):

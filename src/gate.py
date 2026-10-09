@@ -2,6 +2,8 @@ import json
 import re
 from pathlib import Path
 
+from src.links import parse_link, peer_id_from_channel
+
 
 CONNECTED = "Вы подключены!"
 ASK_PASSWORD = "Введите пароль"
@@ -39,12 +41,32 @@ def delivery_tag_text(peer_id, msg_id):
     return "kp:{}:{}".format(peer_id, msg_id)
 
 
+def delivery_target(text, peer_by_username=None):
+    raw = (text or "").strip()
+    tagged = delivery_tag(raw)
+    if tagged:
+        return tagged
+    parsed = parse_link(raw)
+    if parsed is None or not parsed.ref_id or parsed.link.lower() != raw.lower():
+        return None
+    if parsed.internal_id is not None:
+        return peer_id_from_channel(parsed.internal_id), parsed.ref_id
+    if parsed.username and peer_by_username:
+        peer = peer_by_username(parsed.username)
+        if peer is not None:
+            return int(peer), parsed.ref_id
+    return None
+
+
 def is_listener_alert(sender_id, listener_id, forwarded, text):
     if sender_id != listener_id:
         return False
     if forwarded:
         return True
     if delivery_tag(text):
+        return True
+    parsed = parse_link((text or "").strip())
+    if parsed and parsed.ref_id and parsed.link.lower() == (text or "").strip().lower():
         return True
     return "\n\nhttps://t.me/" in (text or "")
 

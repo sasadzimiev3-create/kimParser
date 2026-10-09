@@ -310,7 +310,8 @@ class Database:
             rows = self.conn.execute(
                 """SELECT c.user_id AS user_id, c.topic_id AS topic_id,
                           c.title AS title, c.topic_title AS topic_title,
-                          c.link AS link, c.status AS status, k.keyword AS keyword
+                          c.username AS username, c.link AS link,
+                          c.status AS status, k.keyword AS keyword
                    FROM chats c
                    JOIN keywords k ON k.user_id = c.user_id
                    WHERE c.peer_id=? AND c.status='active'""",

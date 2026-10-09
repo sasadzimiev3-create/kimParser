@@ -1,6 +1,12 @@
 import unittest
 
-from src.links import parse_link, peer_id_from_channel, private_message_link, trailing_telegram_link
+from src.links import (
+    message_permalink,
+    parse_link,
+    peer_id_from_channel,
+    private_message_link,
+    trailing_telegram_link,
+)
 
 
 class LinkTests(unittest.TestCase):
@@ -19,6 +25,17 @@ class LinkTests(unittest.TestCase):
         self.assertEqual(invite.kind, "invite")
         self.assertEqual(invite.invite, "AbC_def")
         self.assertEqual(invite.link, "https://t.me/+AbC_def")
+
+    def test_message_permalink_opens_the_message(self):
+        self.assertEqual(
+            message_permalink(-1002053584336, 19710, "WorkProKino"),
+            "https://t.me/workprokino/19710",
+        )
+        self.assertEqual(
+            message_permalink(-1002053584336, 19710, None),
+            "https://t.me/c/2053584336/19710",
+        )
+        self.assertEqual(message_permalink(123, 5, ""), "")
 
     def test_private_roundtrip(self):
         peer = -1001391677315

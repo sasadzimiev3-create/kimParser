@@ -11,7 +11,7 @@ from src.access import refresh_access
 from src.bot import register_bot
 from src.db import Database
 from src.gate import SubscriberList, delivery_tag_text
-from src.links import private_message_link
+from src.links import message_permalink, private_message_link
 from src.match import matched_chat, recipients, topic_id_from_reply
 from src.trace import trace
 from src.menu import chat_label, install_menu_button
@@ -41,10 +41,10 @@ def message_text(message):
     return text or None
 
 
-async def mark_forward(client, bot, sent, peer_id, msg_id):
+async def mark_forward(client, bot, sent, marker, peer_id, msg_id):
     message = sent[0] if isinstance(sent, (list, tuple)) else sent
     reply_to = getattr(message, "id", None)
-    await client.send_message(bot, delivery_tag_text(peer_id, msg_id), reply_to=reply_to)
+    await client.send_message(bot, marker, reply_to=reply_to)
     # #region agent log
     trace(
         "T",
@@ -55,11 +55,21 @@ async def mark_forward(client, bot, sent, peer_id, msg_id):
     # #endregion
 
 
-async def deliver(client, bot, event):
+def source_permalink(peer_id, message_id, rows):
+    username = ""
+    for row in rows:
+        if row.get("username"):
+            username = row["username"]
+            break
+    return message_permalink(peer_id, message_id, username)
+
+
+async def deliver(client, bot, event, permalink):
     message = event.message
+    marker = permalink or delivery_tag_text(event.chat_id, message.id)
     try:
         sent = await client.forward_messages(bot, message)
-        await mark_forward(client, bot, sent, event.chat_id, message.id)
+        await mark_forward(client, bot, sent, marker, event.chat_id, message.id)
         return "forward"
     except Exception as error:
         name = type(error).__name__
@@ -69,19 +79,14 @@ async def deliver(client, bot, event):
             await asyncio.sleep(seconds)
             try:
                 sent = await client.forward_messages(bot, message)
-                await mark_forward(client, bot, sent, event.chat_id, message.id)
+                await mark_forward(client, bot, sent, marker, event.chat_id, message.id)
                 return "forward"
             except Exception:
                 log.exception("Оригинал не переслался после ожидания")
         else:
             log.exception("Оригинал не переслался, отправляю текст")
 
-    chat = await event.get_chat()
-    username = getattr(chat, "username", None)
-    if username:
-        link = "https://t.me/{}/{}".format(username, message.id)
-    else:
-        link = private_message_link(event.chat_id, message.id)
+    link = permalink or private_message_link(event.chat_id, message.id)
     body = message.raw_text or ""
     if link:
         body = "{}\n\n{}".format(body, link)
@@ -144,9 +149,15 @@ def build_handler(client, bot, db):
                 )
                 link = chat.get("link") or ""
             planned.append((user_id, keyword, name, link))
+        permalink = source_permalink(event.chat_id, event.message.id, rows)
+        if permalink:
+            planned = [
+                (user_id, keyword, name, permalink)
+                for user_id, keyword, name, _link in planned
+            ]
         db.plan_delivery(event.chat_id, event.message.id, planned)
         try:
-            kind = await deliver(client, bot, event)
+            kind = await deliver(client, bot, event, permalink)
         except Exception:
             log.exception("Доставка боту не удалась")
             return
