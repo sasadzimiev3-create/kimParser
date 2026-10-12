@@ -17,19 +17,17 @@ class DatabaseTests(unittest.TestCase):
         self.db.conn.close()
         self._tmp.cleanup()
 
-    def test_seed_once_and_reload(self):
+    def test_new_user_starts_empty(self):
         self.assertTrue(self.db.prepare_user(7))
-        chats, words = self.db.counts(7)
-        self.assertEqual(chats, sum(len(ids) for ids in TOPICS.values()))
-        self.assertEqual(words, len(KEYWORDS))
+        self.assertEqual(self.db.counts(7), (0, 0))
+        self.assertEqual(self.db.list_chats(7), [])
+        self.assertEqual(self.db.list_keywords(7), [])
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
-        first = self.db.list_chats(7)[0]["id"]
-        self.db.delete_chat(7, first)
         self.assertFalse(self.db.prepare_user(7))
-        self.assertEqual(self.db.counts(7)[0], chats - 1)
+        self.assertEqual(self.db.counts(7), (0, 0))
         other = Database(self.path)
         try:
-            self.assertEqual(other.counts(7), (chats - 1, words))
+            self.assertEqual(other.counts(7), (0, 0))
         finally:
             other.conn.close()
 
@@ -45,7 +43,10 @@ class DatabaseTests(unittest.TestCase):
             peer_id=-1005,
         )
         self.assertIsNone(self.db.add_keyword(1, "уникальное"))
-        self.assertEqual(self.db.add_keyword(1, " оператор "), "Такое слово уже есть.")
+        self.assertIsNone(self.db.add_keyword(1, " оператор "))
+        self.assertEqual(self.db.add_keyword(1, "оператор"), "Такое слово уже есть.")
+        self.assertEqual(self.db.list_keywords(2), [])
+        self.assertEqual(self.db.list_chats(2), [])
         self.assertEqual(self.db.add_keyword(1, "я"), "Слишком короткое слово.")
         self.assertIsNone(self.db.peer_by_username("missing"))
         self.assertEqual(self.db.peer_by_username("Extra"), -1005)
@@ -118,7 +119,16 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(self.db.wizard(4), ("del_chat", [8, 3]))
         self.db.clear_wizard(4)
         self.assertEqual(self.db.wizard(4), (None, []))
-        self.assertTrue(self.db.same_link(4, "https://t.me/JETLAGCHAT/44320"))
+        self.db.add_chat(
+            4,
+            link="https://t.me/JETLAGCHAT/44320",
+            title="@jetlagchat",
+            status="pending",
+            username="jetlagchat",
+            topic_id=44320,
+        )
+        self.assertTrue(self.db.same_link(4, "https://t.me/jetlagchat/44320"))
+        self.assertFalse(self.db.same_link(8, "https://t.me/jetlagchat/44320"))
 
     def test_old_deliveries_gain_chat_columns(self):
         self.db.conn.execute("DROP TABLE deliveries")
@@ -145,3 +155,31 @@ class DatabaseTests(unittest.TestCase):
             self.db.claim_delivery(5, 6),
             [(7, "смена", "Work", "https://t.me/WorkProKino/196")],
         )
+
+    def test_unused_starter_copy_is_removed_once(self):
+        self._copy_starter(9, "pending")
+        self._copy_starter(3, "active")
+        self.db.prepare_user(4)
+        self.assertIsNone(self.db.add_keyword(4, "педик"))
+        self.assertEqual(self.db.drop_copied_starters(), 1)
+        self.assertEqual(self.db.counts(9), (0, 0))
+        self.assertEqual(self.db.counts(3), (sum(len(ids) for ids in TOPICS.values()), len(KEYWORDS)))
+        self.assertEqual([row["keyword"] for row in self.db.list_keywords(4)], ["педик"])
+        self._copy_starter(9, "pending")
+        self.assertEqual(self.db.drop_copied_starters(), 0)
+        self.assertEqual(self.db.counts(9), (sum(len(ids) for ids in TOPICS.values()), len(KEYWORDS)))
+
+    def _copy_starter(self, user_id, status):
+        self.db.prepare_user(user_id)
+        for username, topic_ids in TOPICS.items():
+            for topic_id in topic_ids:
+                self.db.add_chat(
+                    user_id,
+                    link="https://t.me/{}/{}".format(username.lower(), topic_id),
+                    title="@" + username,
+                    status=status,
+                    username=username,
+                    topic_id=topic_id,
+                )
+        for keyword in KEYWORDS:
+            self.assertIsNone(self.db.add_keyword(user_id, keyword))

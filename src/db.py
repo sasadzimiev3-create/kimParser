@@ -37,10 +37,8 @@ class Database:
         self._chmod()
 
     def prepare_user(self, user_id, now=None):
-        moment = _moment(now)
-
         def run():
-            return self._seed(int(user_id), moment)
+            return self._seed(int(user_id))
 
         return self._transaction(run)
 
@@ -435,6 +433,32 @@ class Database:
 
         return self._read(run)
 
+    def drop_copied_starters(self):
+        """Убрать автоматически скопированный стартовый список, если человек его не трогал."""
+        if self._meta_value("individual_lists") == "1":
+            return 0
+
+        def run():
+            if self._meta("individual_lists") == "1":
+                return []
+            removed = []
+            rows = self.conn.execute("SELECT user_id FROM users").fetchall()
+            for row in rows:
+                user_id = row["user_id"]
+                if not self._untouched_starter(user_id):
+                    continue
+                self.conn.execute("DELETE FROM chats WHERE user_id=?", (user_id,))
+                self.conn.execute("DELETE FROM keywords WHERE user_id=?", (user_id,))
+                self.conn.execute("DELETE FROM hits WHERE user_id=?", (user_id,))
+                removed.append(user_id)
+            self._set_meta("individual_lists", "1")
+            return removed
+
+        removed = self._transaction(run)
+        for user_id in removed:
+            log.info("Убрал чужой стартовый список у %s", user_id)
+        return len(removed)
+
     def import_legacy_file(self, path):
         if self._meta_value("legacy_stats") == "1":
             return
@@ -457,45 +481,45 @@ class Database:
 
         self._transaction(run)
 
-    def _seed(self, user_id, moment):
+    def _seed(self, user_id):
         row = self.conn.execute(
             "SELECT seeded FROM users WHERE user_id=?",
             (user_id,),
         ).fetchone()
         if row is None:
             self.conn.execute(
-                "INSERT INTO users(user_id, seeded, wizard, wizard_payload) VALUES(?, 0, NULL, '[]')",
+                "INSERT INTO users(user_id, seeded, wizard, wizard_payload) VALUES(?, 1, NULL, '[]')",
                 (user_id,),
             )
-            seeded = 0
-        else:
-            seeded = row["seeded"]
-        if seeded:
+            log.info("Пустой профиль для %s", user_id)
+            return True
+        if not row["seeded"]:
+            self.conn.execute("UPDATE users SET seeded=1 WHERE user_id=?", (user_id,))
+        return False
+
+    def _untouched_starter(self, user_id):
+        chats = self.conn.execute(
+            "SELECT link, status FROM chats WHERE user_id=?",
+            (user_id,),
+        ).fetchall()
+        words = self.conn.execute(
+            "SELECT norm FROM keywords WHERE user_id=?",
+            (user_id,),
+        ).fetchall()
+        starter_links = {
+            link.lower()
+            for username, topic_ids in TOPICS.items()
+            for topic_id in topic_ids
+            for link in ("https://t.me/{}/{}".format(username.lower(), topic_id),)
+        }
+        starter_norms = {normalize(word) for word in KEYWORDS}
+        if len(chats) != len(starter_links) or len(words) != len(starter_norms):
             return False
-        for username, topic_ids in TOPICS.items():
-            for topic_id in topic_ids:
-                self.conn.execute(
-                    """INSERT INTO chats(
-                        user_id, peer_id, username, title, topic_id, topic_title,
-                        link, invite_hash, status, created_at
-                    ) VALUES(?, NULL, ?, ?, ?, NULL, ?, NULL, 'pending', ?)""",
-                    (
-                        user_id,
-                        username.lower(),
-                        "@" + username,
-                        topic_id,
-                        "https://t.me/{}/{}".format(username.lower(), topic_id),
-                        moment,
-                    ),
-                )
-        for keyword in KEYWORDS:
-            self.conn.execute(
-                "INSERT INTO keywords(user_id, keyword, norm, created_at) VALUES(?, ?, ?, ?)",
-                (user_id, keyword, normalize(keyword), moment),
-            )
-        self.conn.execute("UPDATE users SET seeded=1 WHERE user_id=?", (user_id,))
-        log.info("Стартовые чаты и слова для %s", user_id)
-        return True
+        if any(row["status"] != "pending" for row in chats):
+            return False
+        links = {(row["link"] or "").lower() for row in chats}
+        norms = {row["norm"] for row in words}
+        return links == starter_links and norms == starter_norms
 
     def _cleanup(self, moment):
         self.conn.execute(

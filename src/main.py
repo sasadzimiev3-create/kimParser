@@ -206,6 +206,7 @@ async def run():
     me = await client.get_me()
     subscribers = SubscriberList(settings["subscribers_path"])
     db = Database(settings["db_path"])
+    db.drop_copied_starters()
     for user_id in subscribers.ids():
         db.prepare_user(user_id)
     db.import_legacy_file(settings["stats_path"])
