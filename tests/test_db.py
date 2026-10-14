@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.db import WEEK_SECONDS, Database
+from src.db import WEEK_SECONDS, Database, moscow_day_start
 from src.targets import KEYWORDS, TOPICS
 
 
@@ -50,6 +50,81 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual({row["user_id"] for row in self.db.matching_rows(-1005)}, {2})
         self.assertTrue(self.db.set_running(1, True))
         self.assertEqual({row["user_id"] for row in self.db.matching_rows(-1005)}, {1, 2})
+
+    def test_admin_snapshot_counts_live_sessions(self):
+        self.db.prepare_user(1)
+        self.db.prepare_user(2)
+        self.db.set_running(2, False)
+        self.db.add_chat(
+            1,
+            link="https://t.me/a/1",
+            title="A",
+            status="active",
+            peer_id=-100,
+            topic_id=1,
+        )
+        self.db.add_chat(
+            1,
+            link="https://t.me/a/2",
+            title="A",
+            status="active",
+            peer_id=-100,
+            topic_id=2,
+        )
+        self.db.add_chat(
+            1,
+            link="https://t.me/d",
+            title="D",
+            status="requested",
+        )
+        self.db.add_chat(
+            2,
+            link="https://t.me/b/1",
+            title="B",
+            status="pending",
+            peer_id=-200,
+            topic_id=1,
+        )
+        self.db.add_chat(2, link="https://t.me/c", title="C", status="failed")
+        self.assertIsNone(self.db.add_keyword(1, "оператор"))
+        self.assertIsNone(self.db.add_keyword(2, "смена"))
+        start = moscow_day_start(1_800_000_000)
+        self.db.record_hit(1, "оператор", now=start)
+        self.db.record_hit(1, "смена", now=start - 1)
+        self.db.record_hit(2, "оператор", now=start)
+        self.db.plan_delivery(-100, 9, [(1, "оператор")], now=start)
+        self.db.plan_delivery(-100, 8, [(2, "смена")], now=start)
+        self.db.claim_delivery(-100, 8)
+        snap = self.db.admin_snapshot([1, 2, 3, 1], now=start + 5)
+        self.assertEqual(snap["running"], 2)
+        self.assertEqual(snap["stopped"], 1)
+        self.assertEqual(snap["connected"], 3)
+        self.assertEqual(snap["profiles"], 2)
+        self.assertEqual(snap["peers"], 1)
+        self.assertEqual(snap["subscriptions"], 5)
+        self.assertEqual(snap["active"], 2)
+        self.assertEqual(snap["pending"], 1)
+        self.assertEqual(snap["requested"], 1)
+        self.assertEqual(snap["failed"], 1)
+        self.assertEqual(snap["keywords"], 2)
+        self.assertEqual(snap["hits_today"], 2)
+        self.assertEqual(snap["hits_week"], 3)
+        self.assertEqual(snap["top"][0], ("оператор", 2))
+        self.assertEqual(snap["queued"], 1)
+        self.assertEqual(snap["sending"], 1)
+        self.assertEqual([person["user_id"] for person in snap["people"]], [1, 2, 3])
+        first = snap["people"][0]
+        self.assertEqual(first["chats"], 3)
+        self.assertEqual(first["live"], 2)
+        self.assertEqual(first["words"], 1)
+        self.assertEqual(first["hits"], 2)
+        self.assertEqual(snap["people"][1]["live"], 0)
+        self.assertTrue(snap["people"][2]["running"])
+        self.assertEqual(snap["people"][2]["chats"], 0)
+        empty = self.db.admin_snapshot([], now=start + 5)
+        self.assertEqual(empty["running"], 0)
+        self.assertEqual(empty["people"], [])
+        self.assertEqual(empty["hits_week"], 3)
 
     def test_users_do_not_share_chats_or_words(self):
         self.db.prepare_user(1)

@@ -2,14 +2,17 @@ import unittest
 from pathlib import Path
 
 from src.menu import (
+    ADMIN_ID,
     CHAT_ROWS,
     WORD_ROWS,
-    home_rows,
+    admin_text,
     chat_label,
     chat_menu_line,
     chats_text,
     choice_message,
     hit_note,
+    home_rows,
+    is_admin,
     menu_text,
     message_with_note,
     words_text,
@@ -60,6 +63,12 @@ class MenuTextTests(unittest.TestCase):
         self.assertEqual(running[1], (("Остановить", b"menu:run"),))
         self.assertEqual(stopped[1], (("Запустить", b"menu:run"),))
         self.assertEqual(len(running[1]), 1)
+        self.assertEqual(len(running), 2)
+        admin = home_rows(True, admin=True)
+        self.assertEqual(admin[2], (("Админ", b"menu:admin"),))
+        self.assertTrue(is_admin(ADMIN_ID))
+        self.assertTrue(is_admin(str(ADMIN_ID)))
+        self.assertFalse(is_admin(1))
         self.assertEqual(
             [label for label, _ in CHAT_ROWS[0]],
             ["Добавить чат", "Удалить чат"],
@@ -116,6 +125,82 @@ class MenuTextTests(unittest.TestCase):
             "нужен оператор\n" + note,
         )
         self.assertEqual(hit_note("", "", ""), "Ключ: —\nЧат: —")
+
+    def test_admin_screen(self):
+        people = [
+            {
+                "user_id": index,
+                "running": True,
+                "chats": 1,
+                "live": 1,
+                "words": 1,
+                "hits": 0,
+            }
+            for index in range(1, 33)
+        ]
+        people[0] = {
+            "user_id": 7,
+            "running": True,
+            "chats": 0,
+            "live": 0,
+            "words": 0,
+            "hits": 3,
+        }
+        text = admin_text(
+            {
+                "running": 2,
+                "stopped": 1,
+                "connected": 3,
+                "profiles": 4,
+                "peers": 3,
+                "subscriptions": 5,
+                "active": 2,
+                "pending": 1,
+                "requested": 1,
+                "failed": 1,
+                "keywords": 8,
+                "queued": 0,
+                "sending": 1,
+                "hits_today": 4,
+                "hits_week": 9,
+                "top": [("<b>", 2)],
+                "people": people,
+            }
+        )
+        self.assertIn("<b>⚙️ Меню:</b> → админ", text)
+        self.assertIn("▶️ Запущено сессий: 2", text)
+        self.assertIn("⏸ Остановлено: 1", text)
+        self.assertIn("👂 Слушаю чатов: 3", text)
+        self.assertIn("активных 2, подключаю 1, заявка 1, ошибка 1", text)
+        self.assertIn("сегодня 4", text)
+        self.assertIn("за 7 дней 9", text)
+        self.assertIn("🥇 &lt;b&gt; - 2", text)
+        self.assertIn("<code>7</code> — запущена, чатов 0, слов 0, совпадений 3, нечего слать", text)
+        self.assertIn("и ещё 2", text)
+        self.assertNotIn("<code>32</code>", text)
+        empty = admin_text(
+            {
+                "running": 0,
+                "stopped": 0,
+                "connected": 0,
+                "profiles": 0,
+                "peers": 0,
+                "subscriptions": 0,
+                "active": 0,
+                "pending": 0,
+                "requested": 0,
+                "failed": 0,
+                "keywords": 0,
+                "queued": 0,
+                "sending": 0,
+                "hits_today": 0,
+                "hits_week": 0,
+                "top": [],
+                "people": [],
+            }
+        )
+        self.assertIn("Пока нет совпадений", empty)
+        self.assertIn("Пока никто не подключён", empty)
 
     def test_choice(self):
         self.assertEqual(choice_message("2", 3, "чата"), (2, None))

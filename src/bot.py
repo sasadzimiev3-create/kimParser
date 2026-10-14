@@ -17,17 +17,20 @@ from src.trace import trace
 from src.menu import (
     ADD_CHAT_TEXT,
     ADD_WORD_TEXT,
+    ADMIN_ROWS,
     BACK_CHAT_ROWS,
     BACK_WORD_ROWS,
     CHAT_ROWS,
     DELETE_CHAT_INTRO,
     DELETE_WORD_INTRO,
     WORD_ROWS,
-    home_rows,
+    admin_text,
     chat_menu_line,
     chats_text,
     choice_message,
     hit_note,
+    home_rows,
+    is_admin,
     menu_text,
     message_with_note,
     section_text,
@@ -166,7 +169,17 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
         db.clear_wizard(user_id)
         chats, words = db.counts(user_id)
         text = menu_text(chats, words, db.top_keywords(user_id))
-        await present(event, text, home_rows(db.is_running(user_id)), prefer_edit)
+        rows = home_rows(db.is_running(user_id), is_admin(user_id))
+        await present(event, text, rows, prefer_edit)
+
+    async def show_admin(event, prefer_edit):
+        user_id = event.sender_id
+        if not is_admin(user_id):
+            return
+        db.prepare_user(user_id)
+        db.clear_wizard(user_id)
+        text = admin_text(db.admin_snapshot(subscribers.ids()))
+        await present(event, text, ADMIN_ROWS, prefer_edit)
 
     async def show_chats(event, prefer_edit):
         user_id = event.sender_id
@@ -352,6 +365,9 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
             user_id = event.sender_id
             db.prepare_user(user_id)
             name = callback_name(event.data)
+            if name == "menu:admin" and not is_admin(user_id):
+                await event.answer("Недоступно", alert=True)
+                return
             if name == "menu:del_chat" and not db.list_chats(user_id):
                 await event.answer("Пока нечего удалять.", alert=True)
                 return
@@ -361,6 +377,8 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
             await event.answer()
             if name == "menu:home":
                 await show_home(event, True)
+            elif name == "menu:admin":
+                await show_admin(event, True)
             elif name == "menu:run":
                 db.set_running(user_id, not db.is_running(user_id))
                 await show_home(event, True)

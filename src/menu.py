@@ -3,12 +3,27 @@ import urllib.error
 import urllib.request
 from html import escape
 
-def home_rows(running):
+ADMIN_ID = 432654986
+ADMIN_ROWS = ((("Обновить", b"menu:admin"), ("◀️ Назад", b"menu:home")),)
+_PEOPLE_LIMIT = 30
+
+
+def is_admin(user_id):
+    try:
+        return int(user_id) == ADMIN_ID
+    except (TypeError, ValueError):
+        return False
+
+
+def home_rows(running, admin=False):
     label = "Остановить" if running else "Запустить"
-    return (
+    rows = [
         (("Чаты", b"menu:chats"), ("Ключ слова", b"menu:keywords")),
         ((label, b"menu:run"),),
-    )
+    ]
+    if admin:
+        rows.append((("Админ", b"menu:admin"),))
+    return tuple(rows)
 
 
 CHAT_ROWS = (
@@ -57,6 +72,68 @@ def menu_text(chat_count, word_count, top):
         for medal, row in zip(MEDALS, rows):
             keyword, count = row
             lines.append("{} {} - {}".format(medal, escape(keyword), count))
+    return "\n".join(lines)
+
+
+def admin_text(snapshot):
+    lines = [
+        "<b>⚙️ Меню:</b> → админ",
+        "",
+        "▶️ Запущено сессий: {}".format(snapshot["running"]),
+        "⏸ Остановлено: {}".format(snapshot["stopped"]),
+        "👤 Подключено: {}".format(snapshot["connected"]),
+        "🗂 Профилей: {}".format(snapshot["profiles"]),
+        "",
+        "👂 Слушаю чатов: {}".format(snapshot["peers"]),
+        "📋 Подписок: {}".format(snapshot["subscriptions"]),
+        "активных {}, подключаю {}, заявка {}, ошибка {}".format(
+            snapshot["active"],
+            snapshot["pending"],
+            snapshot["requested"],
+            snapshot["failed"],
+        ),
+        "🔑 слов у всех: {}".format(snapshot["keywords"]),
+        "Ждут отправки: {}".format(snapshot["queued"]),
+        "Отправляются: {}".format(snapshot["sending"]),
+        "",
+        "<u>Совпадения:</u>",
+        "сегодня {}".format(snapshot["hits_today"]),
+        "за 7 дней {}".format(snapshot["hits_week"]),
+        "",
+        "<u>Топ за 7 дней:</u>",
+    ]
+    top = list(snapshot["top"])[: len(MEDALS)]
+    if not top:
+        lines.append("Пока нет совпадений")
+    else:
+        for medal, row in zip(MEDALS, top):
+            keyword, count = row
+            lines.append("{} {} - {}".format(medal, escape(keyword), count))
+    lines.append("")
+    lines.append("<u>Кто подключён:</u>")
+    people = list(snapshot["people"])
+    shown = people[:_PEOPLE_LIMIT]
+    if not shown:
+        lines.append("Пока никто не подключён")
+    else:
+        for index, person in enumerate(shown, 1):
+            state = "запущена" if person["running"] else "остановлена"
+            quiet = ""
+            if person["running"] and (person["live"] == 0 or person["words"] == 0):
+                quiet = ", нечего слать"
+            lines.append(
+                "{}. <code>{}</code> — {}, чатов {}, слов {}, совпадений {}{}".format(
+                    index,
+                    int(person["user_id"]),
+                    state,
+                    person["chats"],
+                    person["words"],
+                    person["hits"],
+                    quiet,
+                )
+            )
+        if len(people) > len(shown):
+            lines.append("и ещё {}".format(len(people) - len(shown)))
     return "\n".join(lines)
 
 

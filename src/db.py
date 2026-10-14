@@ -440,6 +440,113 @@ class Database:
 
         return self._read(run)
 
+    def admin_snapshot(self, connected_ids, now=None):
+        moment = _moment(now)
+        week = moment - WEEK_SECONDS
+        day = moscow_day_start(moment)
+        ids = []
+        for item in connected_ids:
+            user_id = int(item)
+            if user_id not in ids:
+                ids.append(user_id)
+
+        def run():
+            found = {}
+            if ids:
+                marks = ",".join("?" * len(ids))
+                rows = self.conn.execute(
+                    """SELECT u.user_id AS user_id, u.running AS running,
+                              (SELECT COUNT(*) FROM chats c WHERE c.user_id=u.user_id) AS chats,
+                              (SELECT COUNT(*) FROM chats c
+                               WHERE c.user_id=u.user_id AND c.status='active') AS live,
+                              (SELECT COUNT(*) FROM keywords k WHERE k.user_id=u.user_id) AS words,
+                              (SELECT COUNT(*) FROM hits h
+                               WHERE h.user_id=u.user_id AND h.ts>=?) AS hits
+                       FROM users u
+                       WHERE u.user_id IN ({})""".format(marks),
+                    (week, *ids),
+                ).fetchall()
+                found = {row["user_id"]: row for row in rows}
+            people = []
+            running = 0
+            stopped = 0
+            for user_id in ids:
+                row = found.get(user_id)
+                if row is None:
+                    person = {
+                        "user_id": user_id,
+                        "running": True,
+                        "chats": 0,
+                        "live": 0,
+                        "words": 0,
+                        "hits": 0,
+                    }
+                else:
+                    person = {
+                        "user_id": user_id,
+                        "running": bool(row["running"]),
+                        "chats": row["chats"],
+                        "live": row["live"],
+                        "words": row["words"],
+                        "hits": row["hits"],
+                    }
+                if person["running"]:
+                    running += 1
+                else:
+                    stopped += 1
+                people.append(person)
+            people.sort(key=lambda item: (-item["hits"], item["user_id"]))
+            statuses = {"active": 0, "pending": 0, "requested": 0, "failed": 0}
+            subscriptions = 0
+            for row in self.conn.execute("SELECT status, COUNT(*) AS n FROM chats GROUP BY status"):
+                statuses[row["status"]] = row["n"]
+                subscriptions += row["n"]
+            queued = 0
+            sending = 0
+            for row in self.conn.execute("SELECT sent, COUNT(*) AS n FROM deliveries GROUP BY sent"):
+                if row["sent"] == 0:
+                    queued = row["n"]
+                elif row["sent"] == 2:
+                    sending = row["n"]
+            top = self.conn.execute(
+                """SELECT keyword, COUNT(*) AS n FROM hits
+                   WHERE ts>=?
+                   GROUP BY keyword
+                   ORDER BY n DESC, keyword ASC
+                   LIMIT 3""",
+                (week,),
+            ).fetchall()
+            return {
+                "running": running,
+                "stopped": stopped,
+                "connected": len(ids),
+                "profiles": self.conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"],
+                "peers": self.conn.execute(
+                    """SELECT COUNT(DISTINCT peer_id) AS n FROM chats
+                       WHERE status='active' AND peer_id IS NOT NULL"""
+                ).fetchone()["n"],
+                "subscriptions": subscriptions,
+                "active": statuses.get("active", 0),
+                "pending": statuses.get("pending", 0),
+                "requested": statuses.get("requested", 0),
+                "failed": statuses.get("failed", 0),
+                "keywords": self.conn.execute("SELECT COUNT(*) AS n FROM keywords").fetchone()["n"],
+                "hits_today": self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM hits WHERE ts>=?",
+                    (day,),
+                ).fetchone()["n"],
+                "hits_week": self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM hits WHERE ts>=?",
+                    (week,),
+                ).fetchone()["n"],
+                "queued": queued,
+                "sending": sending,
+                "top": [(row["keyword"], row["n"]) for row in top],
+                "people": people,
+            }
+
+        return self._read(run)
+
     def active_peer_count(self):
         def run():
             return self.conn.execute(
@@ -675,6 +782,11 @@ def _moment(now):
     if now is None:
         return int(time.time())
     return int(now)
+
+
+def moscow_day_start(moment):
+    local = int(moment) + 3 * 60 * 60
+    return (local // 86400) * 86400 - 3 * 60 * 60
 
 
 def _target_fields(target):
