@@ -287,6 +287,30 @@ class Database:
 
         self._transaction(run)
 
+    def is_running(self, user_id):
+        def run():
+            row = self.conn.execute(
+                "SELECT running FROM users WHERE user_id=?",
+                (int(user_id),),
+            ).fetchone()
+            if row is None:
+                return True
+            return bool(row["running"])
+
+        return self._read(run)
+
+    def set_running(self, user_id, running):
+        value = 1 if running else 0
+
+        def run():
+            self.conn.execute(
+                "UPDATE users SET running=? WHERE user_id=?",
+                (value, int(user_id)),
+            )
+
+        self._transaction(run)
+        return value == 1
+
     def wizard(self, user_id):
         def run():
             row = self.conn.execute(
@@ -312,7 +336,8 @@ class Database:
                           c.status AS status, k.keyword AS keyword
                    FROM chats c
                    JOIN keywords k ON k.user_id = c.user_id
-                   WHERE c.peer_id=? AND c.status='active'""",
+                   JOIN users u ON u.user_id = c.user_id
+                   WHERE c.peer_id=? AND c.status='active' AND u.running=1""",
                 (peer_id,),
             ).fetchall()
             return [dict(row) for row in rows]
@@ -534,7 +559,8 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 seeded INTEGER NOT NULL DEFAULT 0,
                 wizard TEXT,
-                wizard_payload TEXT NOT NULL DEFAULT '[]'
+                wizard_payload TEXT NOT NULL DEFAULT '[]',
+                running INTEGER NOT NULL DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS chats (
                 id INTEGER PRIMARY KEY,
@@ -587,6 +613,7 @@ class Database:
         )
         self._add_column("deliveries", "chat_name", "TEXT NOT NULL DEFAULT ''")
         self._add_column("deliveries", "chat_link", "TEXT NOT NULL DEFAULT ''")
+        self._add_column("users", "running", "INTEGER NOT NULL DEFAULT 1")
 
     def _add_column(self, table, column, definition):
         names = {

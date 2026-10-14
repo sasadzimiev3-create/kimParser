@@ -31,6 +31,26 @@ class DatabaseTests(unittest.TestCase):
         finally:
             other.conn.close()
 
+    def test_stopped_user_is_left_out_of_matches(self):
+        self.db.prepare_user(1)
+        self.db.prepare_user(2)
+        for user_id in (1, 2):
+            self.db.add_chat(
+                user_id,
+                link="https://t.me/extra/1",
+                title="Extra",
+                status="active",
+                peer_id=-1005,
+                topic_id=1,
+            )
+            self.assertIsNone(self.db.add_keyword(user_id, "оператор"))
+        self.assertTrue(self.db.is_running(1))
+        self.assertEqual({row["user_id"] for row in self.db.matching_rows(-1005)}, {1, 2})
+        self.assertFalse(self.db.set_running(1, False))
+        self.assertEqual({row["user_id"] for row in self.db.matching_rows(-1005)}, {2})
+        self.assertTrue(self.db.set_running(1, True))
+        self.assertEqual({row["user_id"] for row in self.db.matching_rows(-1005)}, {1, 2})
+
     def test_users_do_not_share_chats_or_words(self):
         self.db.prepare_user(1)
         self.db.prepare_user(2)
@@ -129,6 +149,25 @@ class DatabaseTests(unittest.TestCase):
         )
         self.assertTrue(self.db.same_link(4, "https://t.me/jetlagchat/44320"))
         self.assertFalse(self.db.same_link(8, "https://t.me/jetlagchat/44320"))
+
+    def test_old_users_start_running(self):
+        self.db.conn.execute("PRAGMA foreign_keys=OFF")
+        self.db.conn.execute("DROP TABLE users")
+        self.db.conn.execute(
+            """CREATE TABLE users (
+                user_id INTEGER PRIMARY KEY,
+                seeded INTEGER NOT NULL DEFAULT 0,
+                wizard TEXT,
+                wizard_payload TEXT NOT NULL DEFAULT '[]'
+            )"""
+        )
+        self.db.conn.execute(
+            "INSERT INTO users(user_id, seeded, wizard, wizard_payload) VALUES(7, 1, NULL, '[]')"
+        )
+        self.db._add_column("users", "running", "INTEGER NOT NULL DEFAULT 1")
+        self.assertTrue(self.db.is_running(7))
+        self.assertFalse(self.db.set_running(7, False))
+        self.assertFalse(self.db.is_running(7))
 
     def test_old_deliveries_gain_chat_columns(self):
         self.db.conn.execute("DROP TABLE deliveries")

@@ -22,8 +22,8 @@ from src.menu import (
     CHAT_ROWS,
     DELETE_CHAT_INTRO,
     DELETE_WORD_INTRO,
-    HOME_ROWS,
     WORD_ROWS,
+    home_rows,
     chat_menu_line,
     chats_text,
     choice_message,
@@ -166,7 +166,7 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
         db.clear_wizard(user_id)
         chats, words = db.counts(user_id)
         text = menu_text(chats, words, db.top_keywords(user_id))
-        await present(event, text, HOME_ROWS, prefer_edit)
+        await present(event, text, home_rows(db.is_running(user_id)), prefer_edit)
 
     async def show_chats(event, prefer_edit):
         user_id = event.sender_id
@@ -269,11 +269,17 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
         previous = subscribers.status(event.sender_id)
         status, reply = handle_private(event.raw_text, previous, password)
         subscribers.apply(event.sender_id, status)
-        if previous != "connected" and status == "connected":
+        opened = previous != "connected" and status == "connected"
+        if opened:
             db.prepare_user(event.sender_id)
             log.info("Подключен %s", event.sender_id)
         if reply:
             await event.respond(reply)
+        if opened:
+            try:
+                await show_home(event, False)
+            except Exception:
+                log.exception("Меню не отправилось %s", event.sender_id)
 
     async def _wizard(event, mode, ids):
         user_id = event.sender_id
@@ -354,6 +360,9 @@ def register_bot(bot_client, subscribers, password, listener_id, db, listener):
                 return
             await event.answer()
             if name == "menu:home":
+                await show_home(event, True)
+            elif name == "menu:run":
+                db.set_running(user_id, not db.is_running(user_id))
                 await show_home(event, True)
             elif name == "menu:chats":
                 await show_chats(event, True)

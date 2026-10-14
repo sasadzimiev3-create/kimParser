@@ -3,7 +3,14 @@ import urllib.error
 import urllib.request
 from html import escape
 
-HOME_ROWS = ((("Чаты", b"menu:chats"), ("Ключ слова", b"menu:keywords")),)
+def home_rows(running):
+    label = "Остановить" if running else "Запустить"
+    return (
+        (("Чаты", b"menu:chats"), ("Ключ слова", b"menu:keywords")),
+        ((label, b"menu:run"),),
+    )
+
+
 CHAT_ROWS = (
     (("Добавить чат", b"menu:add_chat"), ("Удалить чат", b"menu:del_chat")),
     (("◀️ Назад", b"menu:home"),),

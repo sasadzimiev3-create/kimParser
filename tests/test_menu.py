@@ -3,8 +3,8 @@ from pathlib import Path
 
 from src.menu import (
     CHAT_ROWS,
-    HOME_ROWS,
     WORD_ROWS,
+    home_rows,
     chat_label,
     chat_menu_line,
     chats_text,
@@ -54,7 +54,12 @@ class MenuTextTests(unittest.TestCase):
         self.assertIn("🥇 &lt;b&gt; - 1", text)
 
     def test_buttons(self):
-        self.assertEqual([label for label, _ in HOME_ROWS[0]], ["Чаты", "Ключ слова"])
+        running = home_rows(True)
+        stopped = home_rows(False)
+        self.assertEqual([label for label, _ in running[0]], ["Чаты", "Ключ слова"])
+        self.assertEqual(running[1], (("Остановить", b"menu:run"),))
+        self.assertEqual(stopped[1], (("Запустить", b"menu:run"),))
+        self.assertEqual(len(running[1]), 1)
         self.assertEqual(
             [label for label, _ in CHAT_ROWS[0]],
             ["Добавить чат", "Удалить чат"],
